@@ -8,6 +8,8 @@ import json
 import re
 import os
 from datetime import date
+from flask import Flask, render_template_string
+import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -277,7 +279,7 @@ def check_previous_history():
         
     return jsonify(response)
 
-@app.route('/', methods=['GET'])
+@app.route('/dbcheck', methods=['GET'])
 def home_get():
 
     conn = connection()
@@ -294,6 +296,36 @@ def home_get():
     cursor.close()
     conn.close()
     return jsonify({"message": "GET request received" , "tables":tables})
+
+
+@app.route("/")
+def show_clickonce_info():
+    file_path = os.path.join("Deno", "Deno.application")
+    tree = ET.parse(file_path)
+    root = tree.getroot()
+
+    ns = {
+        "asmv1": "urn:schemas-microsoft-com:asm.v1"
+    }
+
+    # Get App Name and Version
+    assembly_identity = root.find("asmv1:assemblyIdentity", ns)
+    app_name = assembly_identity.attrib.get("name") if assembly_identity is not None else "N/A"
+    app_version = assembly_identity.attrib.get("version") if assembly_identity is not None else "N/A"
+
+    html = f"""
+    <html>
+        <head><title>Deno ClickOnce Info</title></head>
+        <body>
+            <h1>Deno.application Info</h1>
+            <p><strong>App Name:</strong> {app_name}</p>
+            <p><strong>Version:</strong> {app_version}</p>
+        </body>
+    </html>
+    """
+    return html
+
+
 
 @app.route('/cashier_login' , methods=['POST'])
 def cashier_login():
