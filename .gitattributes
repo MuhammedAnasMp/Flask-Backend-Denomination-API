@@ -1,0 +1,4 @@
+# Treat all .exe, .dll, .manifest files as binary (no line ending conversion)
+*.exe binary
+*.dll binary
+*.manifest binary
