@@ -60,17 +60,17 @@ def denominations_post():
         print("POST request data:", data)
 
         denom_map = {
-            "0.005": "kd_0005",
-            "0.01": "kd_001",
-            "0.02": "kd_002",
-            "0.05": "kd_005",
-            "0.1": "kd_01",
-            "0.25": "kd_025",
-            "0.5": "kd_05",
-            "1": "kd_1",
-            "5": "kd_5",
-            "10": "kd_10",
-            "20": "kd_20"
+            "0.005": "FILS_005",
+            "0.01": "FILS_010",
+            "0.02": "FILS_020",
+            "0.05": "FILS_050",
+            "0.1": "FILS_100",
+            "0.25": "FILS_250",
+            "0.5": "FILS_500",
+            "1": "KD_1",
+            "5": "KD_5",
+            "10": "KD_10",
+            "20": "KD_20"
         }
 
         row_values = {v: 0 for v in denom_map.values()}
@@ -88,27 +88,30 @@ def denominations_post():
                 row_values[denom_map[denom]] = qty
 
         coin_total = Decimal(data.get("coinTotal", "0"))
-        note_total = Decimal(data.get("noteTotal", "0"))
+        currency_total = Decimal(data.get("noteTotal", "0"))
         grand_total = Decimal(data.get("grandTotal", "0"))
         pos_number = data.get("posNumber")
         loc_code = data.get("locCode")
-        created_by_id = data.get("userId")
-        created_by_name = data.get("userName")
+        cashier_id = data.get("userId")
+        cashier_name = data.get("userName")
+        dev_ip = data.get("devIp")
 
-        cols = ", ".join(row_values.keys()) + ", coin_total, note_total, grand_total, pos_number, loc_code, created_by_name, created_by_id"
-        placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :note_total, :grand_total, :pos_number, :loc_code, :created_by_name, :created_by_id"
-        sql = f"INSERT INTO kwt_denomination ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
+
+        cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  "
+        placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip"
+        sql = f"INSERT INTO kwt_denomination1 ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
         print(coin_total)
         
         params = {
             **row_values,
             "coin_total": coin_total,
-            "note_total": note_total,
+            "currency_total": currency_total,
             "grand_total": grand_total,
             "pos_number": pos_number,
             "loc_code": loc_code,
-            "created_by_name": created_by_name,
-            "created_by_id": created_by_id
+            "cashier_name": cashier_name,
+            "cashier_id": cashier_id,
+            "dev_ip" : dev_ip
         }
 
         try:
@@ -249,9 +252,9 @@ def check_previous_history():
     hardcoded_dt = datetime(2025, 8, 27, 11, 47, 21)  # YYYY, M, D, H, M, S
 
     cursor.execute("""
-        SELECT * FROM kwt_denomination
+        SELECT * FROM kwt_denomination1
         WHERE LOC_CODE = :store_id
-        AND CREATED_BY_ID = :cashier_id
+        AND cashier_id = :cashier_id
         AND CREATED_DT = :hardcoded_dt
     """, {"store_id": store_id, "cashier_id": cashier_id, "hardcoded_dt": hardcoded_dt})
 
