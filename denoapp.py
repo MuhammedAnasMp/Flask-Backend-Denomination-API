@@ -30,13 +30,24 @@ def connection():
         raise
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(BASE_DIR, "webhook.log")
+LOG_FILE = os.path.join(BASE_DIR, "logs.log")
 
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+file_handler = logging.FileHandler(LOG_FILE)
+file_handler.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+if not logger.handlers:
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
 @app.before_request
 def log_request_info():
@@ -357,7 +368,7 @@ def show_clickonce_info():
 def pull_new_version():
     try:
         # Run git pull in your repo directory
-        repo_dir = "C:\inetpub\wwwroot\Denomination>"  # <-- change this!
+        repo_dir = os.path.join(BASE_DIR)
         result = subprocess.run(
             ["git", "-C", repo_dir, "pull", "origin", "master"],
             capture_output=True,

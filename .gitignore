@@ -11,7 +11,7 @@ env/
 
 # Environment variables
 .env
-
+*.log
 # IDEs
 .vscode/
 .idea/
