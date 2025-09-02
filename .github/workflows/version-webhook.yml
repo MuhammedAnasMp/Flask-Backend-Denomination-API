@@ -11,4 +11,4 @@ jobs:
     steps:
       - name: Call webhook on push
         run: |
-          curl -X POST http://172.16.4.253:8000/pullnewversion
+          curl -X POST http://172.16.4.167:8000/pullnewversion

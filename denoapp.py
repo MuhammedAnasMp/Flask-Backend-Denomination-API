@@ -7,11 +7,12 @@ from datetime import datetime
 import json
 import re
 import os
+import logging
 from datetime import date
 from flask import Flask, render_template_string
 import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
-
+import subprocess
 load_dotenv()
 def connection():
     username = os.getenv("ORACLE_USER")
@@ -27,6 +28,30 @@ def connection():
     except oracledb.Error as e:
         print(f"Error connecting to Oracle Database: {e}")
         raise
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(BASE_DIR, "webhook.log")
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
+@app.before_request
+def log_request_info():
+    """Log every incoming request (method, path, IP)."""
+    logging.info(
+        "Incoming request: %s %s from %s | Headers: %s",
+        request.method,
+        request.path,
+        request.remote_addr,
+        dict(request.headers)
+    )
+
+
+
+
 
 DENO_DIR = os.path.join(os.getcwd(), 'Deno')  
 @app.route('/Deno/<path:filename>')
@@ -328,6 +353,35 @@ def show_clickonce_info():
     """
     return html
 
+@app.route("/pullnewversion", methods=["POST"])
+def pull_new_version():
+    try:
+        # Run git pull in your repo directory
+        repo_dir = "C:\inetpub\wwwroot\Denomination>"  # <-- change this!
+        result = subprocess.run(
+            ["git", "-C", repo_dir, "pull", "origin", "master"],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode == 0:
+            logging.info("Git pull success by %s | Output: %s",
+                         request.remote_addr, result.stdout.strip())
+            return jsonify({
+                "status": "success",
+                "output": result.stdout.strip()
+            }), 200
+        else:
+            logging.error("Git pull failed by %s | Error: %s",
+                          request.remote_addr, result.stderr.strip())
+            return jsonify({
+                "status": "error",
+                "error": result.stderr.strip()
+            }), 500
+
+    except Exception as e:
+        logging.exception("Exception during webhook handling")
+        return jsonify({"status": "error", "exception": str(e)}), 500
 
 
 @app.route('/cashier_login' , methods=['POST'])
