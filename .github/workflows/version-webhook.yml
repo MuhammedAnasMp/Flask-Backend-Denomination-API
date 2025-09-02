@@ -1,0 +1,14 @@
+name: Always Trigger Webhook
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  webhook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call webhook on push
+        run: |
+          curl -X POST http://172.16.4.253:8000/pullnewversion
