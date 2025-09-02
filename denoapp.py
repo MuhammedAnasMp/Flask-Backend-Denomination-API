@@ -30,7 +30,11 @@ def connection():
         raise
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = os.path.join(BASE_DIR, "logs.log")
+LOG_DIR = os.path.join(BASE_DIR, "log")  # Use 'log' folder
+LOG_FILE = os.path.join(LOG_DIR, "logs.log")
+
+# Create the log directory if it doesn't exist
+os.makedirs(LOG_DIR, exist_ok=True)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -48,7 +52,6 @@ console_handler.setFormatter(formatter)
 if not logger.handlers:
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
-
 @app.before_request
 def log_request_info():
     """Log every incoming request (method, path, IP)."""
