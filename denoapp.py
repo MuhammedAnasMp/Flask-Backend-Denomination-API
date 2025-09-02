@@ -453,13 +453,16 @@ def show_clickonce_info():
     </html>
     """
     return html
-
+import shutil
 @app.route("/pullnewversion", methods=["POST"])
 def pull_new_version():
     try:
-        repo_dir = os.path.join(BASE_DIR)
+        git_path = shutil.which("git")  # finds git automatically
+        if not git_path:
+            return jsonify({"status": "error", "exception": "Git not found"}), 500
+
         result = subprocess.run(
-            ["git", "-C", repo_dir, "pull", "origin", "master"],
+            [git_path, "-C", BASE_DIR, "pull", "origin", "master"],
             capture_output=True,
             text=True
         )
