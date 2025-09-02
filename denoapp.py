@@ -8,12 +8,15 @@ import json
 import re
 import os
 import logging
+import time
+
 from datetime import date
 from flask import Flask, render_template_string
 import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 import subprocess
 load_dotenv()
+
 def connection():
     username = os.getenv("ORACLE_USER")
     password = os.getenv("ORACLE_PASSWORD")
@@ -30,12 +33,12 @@ def connection():
         raise
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(BASE_DIR, "log")  # Use 'log' folder
+LOG_DIR = os.path.join(BASE_DIR, "log") 
 LOG_FILE = os.path.join(LOG_DIR, "logs.log")
 
-# Create the log directory if it doesn't exist
-os.makedirs(LOG_DIR, exist_ok=True)
 
+
+os.makedirs(LOG_DIR, exist_ok=True)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -93,7 +96,7 @@ def serve_file(filename):
         abort(500)
 
 @app.route('/api/denominations', methods=['POST', 'GET'])
-def denominations_post():
+def denominations():
     if request.method == 'POST':
         data = request.get_json()
         print("POST request data:", data)
@@ -134,55 +137,135 @@ def denominations_post():
         cashier_id = data.get("userId")
         cashier_name = data.get("userName")
         dev_ip = data.get("devIp")
+        authorized_by = data.get("authorizedBy")
+        updating_record_id = data.get("updatingRecordId")
 
+        # try:
+        conn = connection()
+        cur = conn.cursor()
 
-        cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  "
-        placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip"
-        sql = f"INSERT INTO kwt_denomination1 ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
-        print(coin_total)
-        
-        params = {
-            **row_values,
-            "coin_total": coin_total,
-            "currency_total": currency_total,
-            "grand_total": grand_total,
-            "pos_number": pos_number,
-            "loc_code": loc_code,
-            "cashier_name": cashier_name,
-            "cashier_id": cashier_id,
-            "dev_ip" : dev_ip
-        }
+        if authorized_by and updating_record_id:
+         
+            hist_timestamp = datetime.now()  #
 
-        try:
-            conn = connection()  # Assuming connection() returns an Oracle connection
-            cur = conn.cursor()
-            new_id = cur.var(oracledb.NUMBER)  # Bind variable for the ID
-            params["new_id"] = new_id  # Add to params
+            copy_sql = """
+                INSERT INTO kwt_denomination_history (
+                    original_id, loc_code, doc_date, cashier_id,
+                    fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
+                    kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
+                    created_dt, pos_number, authorized_by, dev_ip, cashier_name, hist_timestamp
+                )
+                SELECT 
+                    id, loc_code, doc_date, cashier_id,
+                    fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
+                    kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
+                    created_dt, pos_number, :authorized_by, dev_ip, cashier_name, :hist_timestamp
+                FROM kwt_denomination
+                WHERE id = :upd_id
+                """
+            cur.execute(copy_sql, {
+                "authorized_by": authorized_by,
+                "hist_timestamp": hist_timestamp,
+                "upd_id": updating_record_id
+            })
+            count_sql = """
+            SELECT COUNT(*) FROM kwt_denomination_history
+            WHERE original_id = :upd_id AND TRUNC(hist_timestamp) = TRUNC(SYSDATE)
+            """
+            cur.execute(count_sql, {"upd_id": updating_record_id})
+            reprint_count = cur.fetchone()[0]
 
+            
+            update_sql = """
+            UPDATE kwt_denomination
+            SET 
+                fils_005 = :fils_005,
+                fils_010 = :fils_010,
+                fils_020 = :fils_020,
+                fils_050 = :fils_050,
+                fils_100 = :fils_100,
+                fils_250 = :fils_250,
+                fils_500 = :fils_500,
+                kd_1 = :kd_1,
+                kd_5 = :kd_5,
+                kd_10 = :kd_10,
+                kd_20 = :kd_20,
+                coin_total = :coin_total,
+                currency_total = :currency_total,
+                grand_total = :grand_total,
+                pos_number = :pos_number,
+                loc_code = :loc_code,
+                cashier_name = :cashier_name,
+                cashier_id = :cashier_id,
+                dev_ip = :dev_ip,
+                reprint_count = :reprint_count,
+                authorized_by = :authorized_by
+            WHERE id = :upd_id
+            """
+            params = {
+                **row_values, #  fils_005..kd_20
+                "coin_total": coin_total,
+                "currency_total": currency_total,
+                "grand_total": grand_total,
+                "pos_number": pos_number,
+                "loc_code": loc_code,
+                "cashier_name": cashier_name,
+                "cashier_id": cashier_id,
+                "dev_ip": dev_ip,
+                "reprint_count": reprint_count,
+                "upd_id": updating_record_id,
+                "authorized_by" :authorized_by
+            }
+            cur.execute(update_sql, params)
+            conn.commit()
+            response = {"message": "Record updated and history saved", "id": updating_record_id}
+
+        else:
+            reprint_count = 0
+            hist_timestamp = datetime.now()  #
+            
+            cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  ,reprint_count ,CREATED_DT , DOC_DATE"
+            placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip , 0 ,:hist_timestamp , SYSDATE - 6/24 "
+            sql = f"INSERT INTO kwt_denomination ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
+
+            new_id = cur.var(oracledb.NUMBER)
+            params = {
+                **row_values,
+                "coin_total": coin_total,
+                "currency_total": currency_total,
+                "grand_total": grand_total,
+                "pos_number": pos_number,
+                "loc_code": loc_code,
+                "cashier_name": cashier_name,
+                "cashier_id": cashier_id,
+                "dev_ip": dev_ip,
+                "new_id": new_id,
+                "hist_timestamp" :hist_timestamp
+            }
             cur.execute(sql, params)
             conn.commit()
-
-           
-            inserted_id = new_id.getvalue()[0]  # Get the ID from the bind variable
+            inserted_id = new_id.getvalue()[0]
             response = {"message": "Data inserted successfully", "id": int(inserted_id)}
-            print(response)
-            return jsonify(response), 201
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-        finally:
-            if 'cur' in locals():
-                cur.close()
-            if 'conn' in locals():
-                conn.close()
+
+    
+        return jsonify(response), 201
+
+        # except Exception as e:
+        #     return jsonify({"error": str(e)}), 500
+        # finally:
+        #     if 'cur' in locals():
+        #         cur.close()
+        #     if 'conn' in locals():
+        #         conn.close()
     else:
         
         id = request.args.get('Id')
-        store_id = request.args.get('StoreId')
+        store_id = request.args.get('LocCode')
         cashier_id = request.args.get('UserId')
         if not cashier_id:
             return jsonify({"error": "Missing userId parameter"}), 400
         if not store_id:
-            return jsonify({"error": "Missing StoreId parameter"}), 400
+            return jsonify({"error": "Missing LocCode parameter"}), 400
 
         try:
 
@@ -279,23 +362,23 @@ def denominations_post():
             if 'cur' in locals(): cur.close()
             if 'conn' in locals(): conn.close()
 
-@app.route("/check_exist_history", methods=['GET'])
-def check_previous_history():
+@app.route("/existing_history", methods=['GET'])
+def existing_history():
     conn = connection()
     cursor = conn.cursor()
-    import time
-    time.sleep(5)
-    store_id = request.args.get('StoreId')
+    time.sleep(2)
+    loc_code = request.args.get('LocCode')
     cashier_id = request.args.get('UserId')
 
-    hardcoded_dt = datetime(2025, 8, 27, 11, 47, 21)  # YYYY, M, D, H, M, S
+    today_date = datetime.today().strftime('%d-%b-%y').upper()  # '02-SEP-25'
+    print(today_date)
 
     cursor.execute("""
-        SELECT * FROM kwt_denomination1
-        WHERE LOC_CODE = :store_id
+        SELECT * FROM kwt_denomination
+        WHERE LOC_CODE = :loc_code
         AND cashier_id = :cashier_id
-        AND CREATED_DT = :hardcoded_dt
-    """, {"store_id": store_id, "cashier_id": cashier_id, "hardcoded_dt": hardcoded_dt})
+        AND TO_CHAR(CREATED_DT, 'DD-MON-RR') = :today_date
+    """, {"loc_code": loc_code, "cashier_id": cashier_id, "today_date": today_date})
 
     columns = [col[0] for col in cursor.description]
     rows = cursor.fetchall()
@@ -304,7 +387,6 @@ def check_previous_history():
 
     single_id = tables[0].get("ID") if tables else None
 
-    # Remove CREATED_DT from each row
     for row in tables:
         row.pop("CREATED_DT", None)
 
@@ -318,8 +400,13 @@ def check_previous_history():
 
     if single_id:
         response.update({"id": single_id})
-        
+    
+    print(response)
+    print(single_id)
     return jsonify(response)
+
+
+
 
 @app.route('/dbcheck', methods=['GET'])
 def home_get():
@@ -370,7 +457,6 @@ def show_clickonce_info():
 @app.route("/pullnewversion", methods=["POST"])
 def pull_new_version():
     try:
-        # Run git pull in your repo directory
         repo_dir = os.path.join(BASE_DIR)
         result = subprocess.run(
             ["git", "-C", repo_dir, "pull", "origin", "master"],
