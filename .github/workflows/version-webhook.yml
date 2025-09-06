@@ -11,4 +11,4 @@ jobs:
     steps:
       - name: Call webhook on push
         run: |
-          curl -X GET http://172.16.4.253:8000/gitpull
+          curl -X GET http://172.16.4.253:8000/webhook/gitpull

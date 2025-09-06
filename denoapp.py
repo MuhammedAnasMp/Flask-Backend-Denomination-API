@@ -118,13 +118,13 @@ def denominations():
         row_values = {v: 0 for v in denom_map.values()}
 
         for coin in data.get("coins", []):
-            denom = str(coin["denomination"])  # Ensure string for mapping
+            denom = str(coin["denomination"])
             qty = coin["quantity"]
             if denom in denom_map:
                 row_values[denom_map[denom]] = qty
 
         for note in data.get("notes", []):
-            denom = str(note["denomination"])  # Ensure string for mapping
+            denom = str(note["denomination"]) 
             qty = note["quantity"]
             if denom in denom_map:
                 row_values[denom_map[denom]] = qty
@@ -140,123 +140,123 @@ def denominations():
         authorized_by = data.get("authorizedBy")
         updating_record_id = data.get("updatingRecordId")
 
-        # try:
-        conn = connection()
-        cur = conn.cursor()
+        try:
+            conn = connection()
+            cur = conn.cursor()
 
-        if authorized_by and updating_record_id:
-         
-            hist_timestamp = datetime.now()  #
+            if authorized_by and updating_record_id:
+            
+                hist_timestamp = datetime.now()  #
 
-            copy_sql = """
-                INSERT INTO kwt_denomination_history (
-                    original_id, loc_code, doc_date, cashier_id,
-                    fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
-                    kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
-                    created_dt, pos_number, authorized_by, dev_ip, cashier_name, hist_timestamp
-                )
-                SELECT 
-                    id, loc_code, doc_date, cashier_id,
-                    fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
-                    kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
-                    created_dt, pos_number, :authorized_by, dev_ip, cashier_name, :hist_timestamp
-                FROM kwt_denomination
+                copy_sql = """
+                    INSERT INTO kwt_denomination_history (
+                        original_id, loc_code, doc_date, cashier_id,
+                        fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
+                        kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
+                        created_dt, pos_number, authorized_by, dev_ip, cashier_name, hist_timestamp
+                    )
+                    SELECT 
+                        id, loc_code, doc_date, cashier_id,
+                        fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
+                        kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
+                        created_dt, pos_number, :authorized_by, dev_ip, cashier_name, :hist_timestamp
+                    FROM kwt_denomination
+                    WHERE id = :upd_id
+                    """
+                cur.execute(copy_sql, {
+                    "authorized_by": authorized_by,
+                    "hist_timestamp": hist_timestamp,
+                    "upd_id": updating_record_id
+                })
+                count_sql = """
+                SELECT COUNT(*) FROM kwt_denomination_history
+                WHERE original_id = :upd_id AND TRUNC(hist_timestamp) = TRUNC(SYSDATE)
+                """
+                cur.execute(count_sql, {"upd_id": updating_record_id})
+                reprint_count = cur.fetchone()[0]
+
+                
+                update_sql = """
+                UPDATE kwt_denomination
+                SET 
+                    fils_005 = :fils_005,
+                    fils_010 = :fils_010,
+                    fils_020 = :fils_020,
+                    fils_050 = :fils_050,
+                    fils_100 = :fils_100,
+                    fils_250 = :fils_250,
+                    fils_500 = :fils_500,
+                    kd_1 = :kd_1,
+                    kd_5 = :kd_5,
+                    kd_10 = :kd_10,
+                    kd_20 = :kd_20,
+                    coin_total = :coin_total,
+                    currency_total = :currency_total,
+                    grand_total = :grand_total,
+                    pos_number = :pos_number,
+                    loc_code = :loc_code,
+                    cashier_name = :cashier_name,
+                    cashier_id = :cashier_id,
+                    dev_ip = :dev_ip,
+                    reprint_count = :reprint_count,
+                    authorized_by = :authorized_by
                 WHERE id = :upd_id
                 """
-            cur.execute(copy_sql, {
-                "authorized_by": authorized_by,
-                "hist_timestamp": hist_timestamp,
-                "upd_id": updating_record_id
-            })
-            count_sql = """
-            SELECT COUNT(*) FROM kwt_denomination_history
-            WHERE original_id = :upd_id AND TRUNC(hist_timestamp) = TRUNC(SYSDATE)
-            """
-            cur.execute(count_sql, {"upd_id": updating_record_id})
-            reprint_count = cur.fetchone()[0]
+                params = {
+                    **row_values, #  fils_005..kd_20
+                    "coin_total": coin_total,
+                    "currency_total": currency_total,
+                    "grand_total": grand_total,
+                    "pos_number": pos_number,
+                    "loc_code": loc_code,
+                    "cashier_name": cashier_name,
+                    "cashier_id": cashier_id,
+                    "dev_ip": dev_ip,
+                    "reprint_count": reprint_count,
+                    "upd_id": updating_record_id,
+                    "authorized_by" :authorized_by
+                }
+                cur.execute(update_sql, params)
+                conn.commit()
+                response = {"message": "Record updated and history saved", "id": updating_record_id}
 
-            
-            update_sql = """
-            UPDATE kwt_denomination
-            SET 
-                fils_005 = :fils_005,
-                fils_010 = :fils_010,
-                fils_020 = :fils_020,
-                fils_050 = :fils_050,
-                fils_100 = :fils_100,
-                fils_250 = :fils_250,
-                fils_500 = :fils_500,
-                kd_1 = :kd_1,
-                kd_5 = :kd_5,
-                kd_10 = :kd_10,
-                kd_20 = :kd_20,
-                coin_total = :coin_total,
-                currency_total = :currency_total,
-                grand_total = :grand_total,
-                pos_number = :pos_number,
-                loc_code = :loc_code,
-                cashier_name = :cashier_name,
-                cashier_id = :cashier_id,
-                dev_ip = :dev_ip,
-                reprint_count = :reprint_count,
-                authorized_by = :authorized_by
-            WHERE id = :upd_id
-            """
-            params = {
-                **row_values, #  fils_005..kd_20
-                "coin_total": coin_total,
-                "currency_total": currency_total,
-                "grand_total": grand_total,
-                "pos_number": pos_number,
-                "loc_code": loc_code,
-                "cashier_name": cashier_name,
-                "cashier_id": cashier_id,
-                "dev_ip": dev_ip,
-                "reprint_count": reprint_count,
-                "upd_id": updating_record_id,
-                "authorized_by" :authorized_by
-            }
-            cur.execute(update_sql, params)
-            conn.commit()
-            response = {"message": "Record updated and history saved", "id": updating_record_id}
+            else:
+                reprint_count = 1
+                hist_timestamp = datetime.now()  #
+                
+                cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  ,reprint_count ,CREATED_DT , DOC_DATE"
+                placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip , 0 ,:hist_timestamp ,TRUNC(SYSDATE - 6/24) "
+                sql = f"INSERT INTO kwt_denomination ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
 
-        else:
-            reprint_count = 0
-            hist_timestamp = datetime.now()  #
-            
-            cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  ,reprint_count ,CREATED_DT , DOC_DATE"
-            placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip , 0 ,:hist_timestamp , SYSDATE - 6/24 "
-            sql = f"INSERT INTO kwt_denomination ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
+                new_id = cur.var(oracledb.NUMBER)
+                params = {
+                    **row_values,
+                    "coin_total": coin_total,
+                    "currency_total": currency_total,
+                    "grand_total": grand_total,
+                    "pos_number": pos_number,
+                    "loc_code": loc_code,
+                    "cashier_name": cashier_name,
+                    "cashier_id": cashier_id,
+                    "dev_ip": dev_ip,
+                    "new_id": new_id,
+                    "hist_timestamp" :hist_timestamp
+                }
+                cur.execute(sql, params)
+                conn.commit()
+                inserted_id = new_id.getvalue()[0]
+                response = {"message": "Data inserted successfully", "id": int(inserted_id)}
 
-            new_id = cur.var(oracledb.NUMBER)
-            params = {
-                **row_values,
-                "coin_total": coin_total,
-                "currency_total": currency_total,
-                "grand_total": grand_total,
-                "pos_number": pos_number,
-                "loc_code": loc_code,
-                "cashier_name": cashier_name,
-                "cashier_id": cashier_id,
-                "dev_ip": dev_ip,
-                "new_id": new_id,
-                "hist_timestamp" :hist_timestamp
-            }
-            cur.execute(sql, params)
-            conn.commit()
-            inserted_id = new_id.getvalue()[0]
-            response = {"message": "Data inserted successfully", "id": int(inserted_id)}
+        
+            return jsonify(response), 201
 
-    
-        return jsonify(response), 201
-
-        # except Exception as e:
-        #     return jsonify({"error": str(e)}), 500
-        # finally:
-        #     if 'cur' in locals():
-        #         cur.close()
-        #     if 'conn' in locals():
-        #         conn.close()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
     else:
         
         id = request.args.get('Id')
@@ -268,18 +268,40 @@ def denominations():
             return jsonify({"error": "Missing LocCode parameter"}), 400
 
         try:
-
+            records = []
+            denom_row = {}
             conn = connection()
             cur = conn.cursor()
+
+            cur.execute("""
+                SELECT MIN(pthstart) AS firstbill,
+                    MAX(pthstart) AS lastbill
+                FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER
+                WHERE PTHSITE = :store_id
+                AND PTHBUSDATE = TRUNC(SYSDATE - 6/24)
+                AND PTHSTATUS = 5
+                AND PTHCASHIER = :cashier_id
+                AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0
+            """, {"store_id": store_id, "cashier_id": cashier_id})
+
+            bill_row = cur.fetchone()
+            first_bill = bill_row[0] if bill_row and bill_row[0] is not None else "N/A"
+            last_bill = bill_row[1] if bill_row and bill_row[1] is not None else "N/A"
+            row_dict = {"first_bill": first_bill, "last_bill": last_bill}
+
             cur.execute("SELECT * FROM kwt_denomination WHERE id = :id", {"id": id})
             columns = [col[0].lower() for col in cur.description]
-            records = []
 
             for row in cur.fetchall():
-                row_dict = dict(zip(columns, row))
-                if "created_dt" in row_dict and isinstance(row_dict["created_dt"], datetime):
-                    row_dict["created_dt"] = row_dict["created_dt"].isoformat()  # "2025-08-23T12:59:26"
-                records.append(row_dict)
+                denom_row = dict(zip(columns, row))
+                denom_row.update(row_dict)  
+                if "created_dt" in denom_row and isinstance(denom_row["created_dt"], datetime):
+                    denom_row["created_dt"] = denom_row["created_dt"].isoformat()
+                records.append(denom_row)
+
+
+            
+            
 
             
             
@@ -293,7 +315,6 @@ def denominations():
                 --SUSPENDED
                 SELECT DISTINCT 'SUSPENDED' STATUS,'',COUNT(*) BILL_COUNT,SUM(PTHAMOUNTSALES-PTHAMOUNTRETURNS)VALUE FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER WHERE PTHSITE= : store_id AND PTHBUSDATE= TRUNC(SYSDATE - 26/24) AND PTHSTATUS=2 AND PTHCASHIER= :cashier_id  AND PTHAMOUNTSALES-PTHAMOUNTRETURNS <>0
                 
-
                 """
             params = {
                 "store_id": store_id,
@@ -308,7 +329,6 @@ def denominations():
                     'Void': ['VOID', 'Cancel line'],
                     'Void All': ['VOID ALL'],
                     'Suspended': ['SUSPENDED'],
-                    # 'Others': ['Others']
                 }
                 
                 grouped_data = {}
@@ -351,7 +371,6 @@ def denominations():
             grouped_result = group_statuses(result)
 
 
-            # transaction_report = json.dumps(grouped_result, default=str)
 
             print({"data": records, "transaction_report": grouped_result})
 
@@ -366,7 +385,6 @@ def denominations():
 def existing_history():
     conn = connection()
     cursor = conn.cursor()
-    time.sleep(2)
     loc_code = request.args.get('LocCode')
     cashier_id = request.args.get('UserId')
 
@@ -427,7 +445,7 @@ def home_get():
     return jsonify({"message": "GET request received" , "tables":tables})
 
 
-@app.route("/")
+@app.route("/" , methods=['GET','POST'])
 def show_clickonce_info():
     file_path = os.path.join("Deno", "Deno.application")
     tree = ET.parse(file_path)
@@ -437,22 +455,22 @@ def show_clickonce_info():
         "asmv1": "urn:schemas-microsoft-com:asm.v1"
     }
 
-    # Get App Name and Version
     assembly_identity = root.find("asmv1:assemblyIdentity", ns)
     app_name = assembly_identity.attrib.get("name") if assembly_identity is not None else "N/A"
     app_version = assembly_identity.attrib.get("version") if assembly_identity is not None else "N/A"
-
-    html = f"""
-    <html>
-        <head><title>Deno ClickOnce Info</title></head>
-        <body>
-            <h1>Deno.application Info</h1>
-            <p><strong>App Name:</strong> {app_name}</p>
-            <p><strong>Version:</strong> {app_version}</p>
-        </body>
-    </html>
-    """
-    return html
+    if request.method == "POST":
+        return jsonify({"app_name":app_name , "app_version" : app_version})
+    else:
+        return f"""
+        <html>
+            <head><title>Deno ClickOnce Info</title></head>
+            <body>
+                <h1>Denominator Application Info</h1>
+                <p><strong>App Name:</strong> {app_name}</p>
+                <p><strong>Latest Version:</strong> {app_version}</p>
+            </body>
+        </html>
+        """
 
 
 
@@ -528,29 +546,6 @@ def cashier_login():
 
 
 
-@app.route('/void_id_validation', methods=['POST'])
-def void_id_validation():
-    data = request.get_json()
-
-    if not data or 'username' not in data or 'password' not in data:
-        return jsonify({"message": "Missing username or password", "status": 400}), 400
-    
-
-    is_authenticated = data['username'] == "1" and data['password'] == "1"
-    
-    counted_by = '300383' # return void owner id 
-
-    if is_authenticated:
-        print(data) 
-        return jsonify({"message": " login successful","success":True ,"status": 200 , "counted_by":counted_by}), 200
-    else:
-        return jsonify({"message": "Authentication Failed: Invalid username or password", "status": 401}), 401
-
-
-
-
-
-
 
 def get_git_path():
     git_local = shutil.which("git")
@@ -562,7 +557,7 @@ def get_git_path():
         return git_prod
     return None
 
-@app.route("/gitpull", methods=["GET"])
+@app.route("/webhook/gitpull", methods=["GET","POST"])
 def pull_new_version():
     try:
         repo_dir = os.path.join(BASE_DIR) 
