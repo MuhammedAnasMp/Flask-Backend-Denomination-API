@@ -178,7 +178,7 @@ def denominations():
                 """
                 cur.execute(count_sql, {"upd_id": updating_record_id})
                 reprint_count = cur.fetchone()[0]
-
+                today = datetime.today().date()
                 
                 update_sql = """
                 UPDATE kwt_denomination
@@ -544,21 +544,31 @@ def show_clickonce_info():
 
 @app.route('/cashier_login' , methods=['POST'])
 def cashier_login():
-    try:
+    # try:
         data = request.get_json()
         cashier_id = data.get("cashier_id")
         pin = data.get("password")
         print(request.get_json())
-        if pin =="" and cashier_id =="":
-            cashier_id=80322
-            pin=4321
-        else:
-            try:
-                cashier_id = int(cashier_id)
-                pin = int(pin)
-            except (ValueError, TypeError):
-                return jsonify({"message": "Username and password must be numeric"}), 400
-
+        if False :
+            if pin =="" and cashier_id =="":
+                cashier_id=80322
+                pin=4321
+            else:
+                try:
+                    cashier_id = int(cashier_id)
+                    pin = int(pin)
+                except (ValueError, TypeError):
+                    return jsonify({"message": "Username and password must be numeric"}), 400
+        else :
+            if pin =="" or cashier_id =="":
+             
+                 return jsonify({"message": "Please enter the username and password"}), 400
+            else:
+                try:
+                    cashier_id = int(cashier_id)
+                    pin = int(pin)
+                except (ValueError, TypeError):
+                    return jsonify({"message": "Username and password must be numeric"}), 400
         conn = connection() 
         cursor = conn.cursor()
         query = """
@@ -589,7 +599,7 @@ def cashier_login():
         row = cursor.fetchone()
 
         response = {}
-        if row:
+        if row and row[1].lower() != "invalid":
             response = {
                 "id": row[0],
                 "auth": row[1],
@@ -606,9 +616,9 @@ def cashier_login():
         print(response)
         return jsonify(response), status_code
 
-    except Exception as e:
-        print(e)
-        return jsonify({"message": str(e)}), 500
+    # except Exception as e:
+    #     print(e)
+    #     return jsonify({"message": str(e)}), 500
 
 
 
