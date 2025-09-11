@@ -140,6 +140,10 @@ def denominations():
         authorized_by = data.get("authorizedBy")
         updating_record_id = data.get("updatingRecordId")
 
+
+        opening_amount = data.get("openingAmount")
+
+      
         try:
             conn = connection()
             cur = conn.cursor()
@@ -153,13 +157,13 @@ def denominations():
                         original_id, loc_code, doc_date, cashier_id,
                         fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
                         kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
-                        created_dt, pos_number, authorized_by, dev_ip, cashier_name, hist_timestamp
+                        created_dt, pos_number, authorized_by, dev_ip, cashier_name, hist_timestamp , opening_amount
                     )
                     SELECT 
                         id, loc_code, doc_date, cashier_id,
                         fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
                         kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
-                        created_dt, pos_number, :authorized_by, dev_ip, cashier_name, :hist_timestamp
+                        created_dt, pos_number, :authorized_by, dev_ip, cashier_name, :hist_timestamp ,opening_amount
                     FROM kwt_denomination
                     WHERE id = :upd_id
                     """
@@ -199,7 +203,8 @@ def denominations():
                     cashier_id = :cashier_id,
                     dev_ip = :dev_ip,
                     reprint_count = :reprint_count,
-                    authorized_by = :authorized_by
+                    authorized_by = :authorized_by,
+                    opening_amount = :opening_amount
                 WHERE id = :upd_id
                 """
                 params = {
@@ -214,7 +219,8 @@ def denominations():
                     "dev_ip": dev_ip,
                     "reprint_count": reprint_count,
                     "upd_id": updating_record_id,
-                    "authorized_by" :authorized_by
+                    "authorized_by" :authorized_by,
+                    "opening_amount" :opening_amount 
                 }
                 cur.execute(update_sql, params)
                 conn.commit()
@@ -224,8 +230,8 @@ def denominations():
                 reprint_count = 1
                 hist_timestamp = datetime.now()  #
                 
-                cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  ,reprint_count ,CREATED_DT , DOC_DATE"
-                placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip , 0 ,:hist_timestamp ,TRUNC(SYSDATE - 6/24) "
+                cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  ,reprint_count ,CREATED_DT , DOC_DATE , opening_amount"
+                placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip , 0 ,:hist_timestamp ,TRUNC(SYSDATE - 6/24)  ,:opening_amount"
                 sql = f"INSERT INTO kwt_denomination ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
 
                 new_id = cur.var(oracledb.NUMBER)
@@ -240,7 +246,8 @@ def denominations():
                     "cashier_id": cashier_id,
                     "dev_ip": dev_ip,
                     "new_id": new_id,
-                    "hist_timestamp" :hist_timestamp
+                    "hist_timestamp" :hist_timestamp,
+                    "opening_amount":opening_amount
                 }
                 cur.execute(sql, params)
                 conn.commit()
@@ -258,7 +265,7 @@ def denominations():
             if 'conn' in locals():
                 conn.close()
     else:
-        
+        # print denomination data is returnd by else case  
         id = request.args.get('Id')
         store_id = request.args.get('LocCode')
         cashier_id = request.args.get('UserId')
@@ -273,21 +280,81 @@ def denominations():
             conn = connection()
             cur = conn.cursor()
 
+            # cur.execute("""
+            #     SELECT MIN(pthstart) AS firstbill,
+            #         MAX(pthstart) AS lastbill
+            #     FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER
+            #     WHERE PTHSITE = :store_id
+            #     AND PTHBUSDATE = TRUNC(SYSDATE - 6/24)
+            #     AND PTHSTATUS = 5
+            #     AND PTHCASHIER = :cashier_id
+            #     AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0
+            # """, {"store_id": store_id, "cashier_id": cashier_id})
+            
+            
+            
+            
             cur.execute("""
-                SELECT MIN(pthstart) AS firstbill,
-                    MAX(pthstart) AS lastbill
-                FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER
-                WHERE PTHSITE = :store_id
-                AND PTHBUSDATE = TRUNC(SYSDATE - 6/24)
-                AND PTHSTATUS = 5
-                AND PTHCASHIER = :cashier_id
-                AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0
-            """, {"store_id": store_id, "cashier_id": cashier_id})
+                SELECT 
+                    PTHCASHIER,
+                    COUNT(DISTINCT CASE 
+                                    WHEN PTHSUBTYPE = 0 
+                                        AND PTHTYPE = 1 
+                                        AND PTHSTATUS = 5 
+                                        AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0 
+                                    THEN TO_CHAR(PTHSTART,'HH24') 
+                                END) AS SALES_HOURS,
+                    SUM(CASE 
+                        WHEN PTHSUBTYPE = 0 
+                            AND PTHTYPE = 1 
+                            AND PTHSTATUS = 5 
+                            AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0 
+                        THEN 1 
+                        ELSE 0 
+                        END) AS TOTAL_CUSTOMER,
+                    TO_CHAR(MIN(CASE WHEN PTHSUBTYPE = 500 THEN PTHSTART END), 'DD-MON-YY HH24:MI:SS') AS LOGIN,
+                    TO_CHAR(MAX(CASE WHEN PTHSUBTYPE = 0 
+                                    AND PTHSTATUS = 5 
+                                    AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0 
+                                THEN PTHSTART END), 'DD-MON-YY HH24:MI:SS') AS LAST_SALE,
+                    TO_CHAR(MAX(CASE WHEN PTHSUBTYPE = 400 THEN PTHSTART END), 'DD-MON-YY HH24:MI:SS') AS DECLARE,
+                    TO_CHAR(MIN(CASE WHEN PTHSTATUS = 5 AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0 THEN PTHSTART END), 'DD-MON-YY HH24:MI:SS') AS FIRST_BILL,
+                    TO_CHAR(MAX(CASE WHEN PTHSTATUS = 5 AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0 THEN PTHSTART END), 'DD-MON-YY HH24:MI:SS') AS LAST_BILL,
+                    TO_CHAR(
+                        TRUNC((MAX(CASE WHEN PTHSUBTYPE = 0 
+                                        AND PTHSTATUS = 5 
+                                        AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0 
+                                    THEN PTHSTART END) - MIN(CASE WHEN PTHSUBTYPE = 500 THEN PTHSTART END)) * 24)
+                    , 'FM00') || ':' ||
+                    TO_CHAR(
+                        TRUNC(MOD((MAX(CASE WHEN PTHSUBTYPE = 0 
+                                            AND PTHSTATUS = 5 
+                                            AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0 
+                                        THEN PTHSTART END) -
+                                MIN(CASE WHEN PTHSUBTYPE = 500 THEN PTHSTART END)) * 24 * 60, 60))
+                    , 'FM00') AS HOURS_SPENT_IN_POS
+                    FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER
+                    WHERE PTHSITE = :store_id
+                    AND PTHBUSDATE = '09-SEP-25'
+                    AND PTHCASHIER = :cashier_id
+                    GROUP BY PTHCASHIER
+                """, {"store_id": store_id, "cashier_id": cashier_id})
 
             bill_row = cur.fetchone()
-            first_bill = bill_row[0] if bill_row and bill_row[0] is not None else "N/A"
-            last_bill = bill_row[1] if bill_row and bill_row[1] is not None else "N/A"
-            row_dict = {"first_bill": first_bill, "last_bill": last_bill}
+            row_dict = {
+                "cashier": bill_row[0] if bill_row and bill_row[0] is not None else "N/A",
+                "sales_hours": bill_row[1] if bill_row and bill_row[1] is not None else 0,
+                "total_customer": bill_row[2] if bill_row and bill_row[2] is not None else 0,
+                "login": bill_row[3] if bill_row and bill_row[3] is not None else "N/A",
+                "last_sale": bill_row[4] if bill_row and bill_row[4] is not None else "N/A",
+                "declare": bill_row[5] if bill_row and bill_row[5] is not None else "N/A",
+                "first_bill": bill_row[6] if bill_row and bill_row[6] is not None else "N/A",
+                "last_bill": bill_row[7] if bill_row and bill_row[7] is not None else "N/A",
+                "hours_spent_in_pos": bill_row[8] if bill_row and bill_row[8] is not None else "00:00"
+
+            }
+
+
 
             cur.execute("SELECT * FROM kwt_denomination WHERE id = :id", {"id": id})
             columns = [col[0].lower() for col in cur.description]
@@ -366,8 +433,8 @@ def denominations():
             result = []
             for row in rows:
                 result.append(dict(zip(columns, row)))
-          
-      
+            
+        
             grouped_result = group_statuses(result)
 
 
@@ -389,7 +456,7 @@ def existing_history():
     cashier_id = request.args.get('UserId')
 
     today_date = datetime.today().strftime('%d-%b-%y').upper()  # '02-SEP-25'
-    print(today_date)
+
 
     cursor.execute("""
         SELECT * FROM kwt_denomination
