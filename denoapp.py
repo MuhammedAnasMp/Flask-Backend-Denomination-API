@@ -17,6 +17,9 @@ from dotenv import load_dotenv
 import subprocess
 load_dotenv()
 
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+
+
 def connection():
     username = os.getenv("ORACLE_USER")
     password = os.getenv("ORACLE_PASSWORD")
@@ -544,13 +547,14 @@ def show_clickonce_info():
 
 @app.route('/cashier_login' , methods=['POST'])
 def cashier_login():
-    # try:
+    try:
+     
         data = request.get_json()
         cashier_id = data.get("cashier_id")
         pin = data.get("password")
         print(request.get_json())
-        if True :
-            if pin =="ans" and cashier_id =="ans":
+        if DEBUG :
+            if pin =="" and cashier_id =="":
                 cashier_id=80322
                 pin=4321
             else:
@@ -574,7 +578,7 @@ def cashier_login():
         query = """
             SELECT 
                 NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
-                NVL( c
+                NVL( 
                     CASE 
                         WHEN pcacashierid = 786 THEN 'ADMIN'
                         ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
@@ -616,9 +620,9 @@ def cashier_login():
         print(response)
         return jsonify(response), status_code
 
-    # except Exception as e:
-    #     print(e)
-    #     return jsonify({"message": str(e)}), 500
+    except Exception as e:
+        print(e)
+        return jsonify({"message": str(e)}), 500
 
 
 
