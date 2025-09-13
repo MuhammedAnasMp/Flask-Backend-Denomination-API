@@ -574,7 +574,7 @@ def cashier_login():
         query = """
             SELECT 
                 NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
-                NVL(
+                NVL( c
                     CASE 
                         WHEN pcacashierid = 786 THEN 'ADMIN'
                         ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
