@@ -15,9 +15,29 @@ from flask import Flask, render_template_string
 import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 import subprocess
+from pyfiglet import figlet_format
 load_dotenv()
-
+from flask import Flask, request, g
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+
+import sys
+debug_arg = None
+for arg in sys.argv[1:]:
+    if arg.lower().startswith("debug="):
+        debug_arg = arg.split("=", 1)[1].lower()
+
+# 2️⃣ Decide DEBUG mode
+if debug_arg is not None:
+    DEBUG = debug_arg == "true"
+else:
+    DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+
+# 3️⃣ Print banner
+text = "DEVELOPMENT" if DEBUG else "PRODUCTION"
+banner = figlet_format(text, font="slant")
+print(banner)
+KWT_DENOMINATION_TABLE = "KWT_DENOMINATION_TEST" if DEBUG else "KWT_DENOMINATION"
+KWT_DENOMINATION_HISTORY_TABLE = "KWT_DENOMINATION_HISTORY_TEST" if DEBUG else "KWT_DENOMINATION_HISTORY"
 
 
 def connection():
@@ -58,17 +78,46 @@ console_handler.setFormatter(formatter)
 if not logger.handlers:
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+
+
+# Log request info
 @app.before_request
 def log_request_info():
-    """Log every incoming request (method, path, IP)."""
-    logging.info(
-        "Incoming request: %s %s from %s | Headers: %s",
-        request.method,
-        request.path,
-        request.remote_addr,
-        dict(request.headers)
-    )
+    try:
+        body = request.get_json(silent=True)  # Try to parse JSON
+        if body is None:
+            body = request.form.to_dict() or request.data.decode("utf-8")
+    except Exception:
+        body = "<Could not parse body>"
 
+    g.request_body = body  # store for logging response later
+
+    logging.info("=== Incoming Request ===")
+    logging.info("Method: %s", request.method)
+    logging.info("Path: %s", request.path)
+    logging.info("IP: %s", request.remote_addr)
+    logging.info("Query Params: %s", dict(request.args))
+    logging.info("Headers: %s", dict(request.headers))
+    logging.info("Body: %s", json.dumps(body, indent=4, ensure_ascii=False))
+
+# Log response info
+@app.after_request
+def log_response_info(response):
+    try:
+        content_type = response.content_type
+        response_body = response.get_data(as_text=True)
+        # If JSON, pretty print
+        if "application/json" in content_type:
+            response_body = json.dumps(json.loads(response_body), indent=4, ensure_ascii=False)
+    except Exception:
+        response_body = "<Could not parse response>"
+
+    logging.info("=== Response ===")
+    logging.info("Status: %s", response.status)
+    logging.info("Headers: %s", dict(response.headers))
+    logging.info("Body: %s", response_body)
+    logging.info("=======================")
+    return response
 
 
 
@@ -152,39 +201,43 @@ def denominations():
             cur = conn.cursor()
 
             if authorized_by and updating_record_id:
-            
+            # trying to update one existing data (not printing)
                 hist_timestamp = datetime.now()  #
 
-                copy_sql = """
-                    INSERT INTO kwt_denomination_history (
+                copy_sql = f"""
+                    INSERT INTO {KWT_DENOMINATION_HISTORY_TABLE} (
                         original_id, loc_code, doc_date, cashier_id,
                         fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
                         kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
-                        created_dt, pos_number, authorized_by, dev_ip, cashier_name, hist_timestamp , opening_amount
+                         pos_number, authorized_by, dev_ip, cashier_name, hist_timestamp , opening_amount
                     )
                     SELECT 
                         id, loc_code, doc_date, cashier_id,
                         fils_005, fils_010, fils_020, fils_050, fils_100, fils_250, fils_500,
                         kd_1, kd_5, kd_10, kd_20, coin_total, currency_total, grand_total,
-                        created_dt, pos_number, :authorized_by, dev_ip, cashier_name, :hist_timestamp ,opening_amount
-                    FROM kwt_denomination
-                    WHERE id = :upd_id
+                         pos_number, :authorized_by, dev_ip, cashier_name, :hist_timestamp ,opening_amount
+                    FROM {KWT_DENOMINATION_TABLE}
+                    WHERE id = :upd_id 
                     """
                 cur.execute(copy_sql, {
                     "authorized_by": authorized_by,
                     "hist_timestamp": hist_timestamp,
                     "upd_id": updating_record_id
                 })
-                count_sql = """
-                SELECT COUNT(*) FROM kwt_denomination_history
-                WHERE original_id = :upd_id AND TRUNC(hist_timestamp) = TRUNC(SYSDATE)
+
+
+                count_sql = f"""
+                SELECT COUNT(*) FROM {KWT_DENOMINATION_HISTORY_TABLE}
+                WHERE original_id = :upd_id 
+                
                 """
                 cur.execute(count_sql, {"upd_id": updating_record_id})
-                reprint_count = cur.fetchone()[0]
-                today = datetime.today().date()
+                reprint_count = cur.fetchone()[0] +1
                 
-                update_sql = """
-                UPDATE kwt_denomination
+
+                
+                update_sql = f"""
+                UPDATE {KWT_DENOMINATION_TABLE}
                 SET 
                     fils_005 = :fils_005,
                     fils_010 = :fils_010,
@@ -207,11 +260,12 @@ def denominations():
                     dev_ip = :dev_ip,
                     reprint_count = :reprint_count,
                     authorized_by = :authorized_by,
-                    opening_amount = :opening_amount
+                    opening_amount = :opening_amount 
+
                 WHERE id = :upd_id
                 """
                 params = {
-                    **row_values, #  fils_005..kd_20
+                    **row_values, 
                     "coin_total": coin_total,
                     "currency_total": currency_total,
                     "grand_total": grand_total,
@@ -230,12 +284,13 @@ def denominations():
                 response = {"message": "Record updated and history saved", "id": updating_record_id}
 
             else:
+            # First time create  (not printing)
                 reprint_count = 1
-                hist_timestamp = datetime.now()  #
-                
+               
+                current_date =  datetime.now() 
                 cols = ", ".join(row_values.keys()) + ", coin_total, currency_total, grand_total, pos_number, loc_code, cashier_name, cashier_id , dev_ip  ,reprint_count ,CREATED_DT , DOC_DATE , opening_amount"
-                placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip , 0 ,:hist_timestamp ,TRUNC(SYSDATE - 6/24)  ,:opening_amount"
-                sql = f"INSERT INTO kwt_denomination ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
+                placeholders = ", ".join([f":{k}" for k in row_values.keys()]) + ", :coin_total, :currency_total, :grand_total, :pos_number, :loc_code, :cashier_name, :cashier_id , :dev_ip , :reprint_count ,:current_date ,TRUNC(SYSDATE - 6/24)  ,:opening_amount"
+                sql = f"INSERT INTO {KWT_DENOMINATION_TABLE} ({cols}) VALUES ({placeholders}) RETURNING id INTO :new_id"
 
                 new_id = cur.var(oracledb.NUMBER)
                 params = {
@@ -249,8 +304,9 @@ def denominations():
                     "cashier_id": cashier_id,
                     "dev_ip": dev_ip,
                     "new_id": new_id,
-                    "hist_timestamp" :hist_timestamp,
-                    "opening_amount":opening_amount
+                    "current_date" :current_date,
+                    "opening_amount":opening_amount,
+                    "reprint_count":reprint_count
                 }
                 cur.execute(sql, params)
                 conn.commit()
@@ -268,7 +324,7 @@ def denominations():
             if 'conn' in locals():
                 conn.close()
     else:
-        # print denomination data is returnd by else case  
+    # print denomination data is returnd by else case  
         id = request.args.get('Id')
         store_id = request.args.get('LocCode')
         cashier_id = request.args.get('UserId')
@@ -282,20 +338,6 @@ def denominations():
             denom_row = {}
             conn = connection()
             cur = conn.cursor()
-
-            # cur.execute("""
-            #     SELECT MIN(pthstart) AS firstbill,
-            #         MAX(pthstart) AS lastbill
-            #     FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER
-            #     WHERE PTHSITE = :store_id
-            #     AND PTHBUSDATE = TRUNC(SYSDATE - 6/24)
-            #     AND PTHSTATUS = 5
-            #     AND PTHCASHIER = :cashier_id
-            #     AND PTHAMOUNTSALES - PTHAMOUNTRETURNS <> 0
-            # """, {"store_id": store_id, "cashier_id": cashier_id})
-            
-            
-            
             
             cur.execute("""
                 SELECT 
@@ -359,7 +401,7 @@ def denominations():
 
 
 
-            cur.execute("SELECT * FROM kwt_denomination WHERE id = :id", {"id": id})
+            cur.execute(f"SELECT * FROM {KWT_DENOMINATION_TABLE} WHERE id = :id", {"id": id})
             columns = [col[0].lower() for col in cur.description]
 
             for row in cur.fetchall():
@@ -368,13 +410,7 @@ def denominations():
                 if "created_dt" in denom_row and isinstance(denom_row["created_dt"], datetime):
                     denom_row["created_dt"] = denom_row["created_dt"].isoformat()
                 records.append(denom_row)
-
-
-            
-            
-
-            
-            
+          
             query = """
                 --VOID 
                 SELECT 'VOID' STATUS, AUTHORIZED_BY||'-'||SUPERVISOR_NAME NAME, COUNT(DISTINCT RECEIPT_NO||COUNTER_NO)BILL_COUNT,SUM(LINE_VALUE)VALUE FROM GOLDPROD.GRAND_POS_REQ_AUTHORIZATION@GOLD_SERVER G WHERE STORE_GROUP = STORE_ID AND BUSINESS_DATE = TRUNC(SYSDATE - 6/24) AND STORE_ID =:store_id AND CASHIER_ID= :cashier_id AND REQUESTED_ACTION='Cancel line' GROUP BY AUTHORIZED_BY||'-'||SUPERVISOR_NAME UNION ALL
@@ -461,8 +497,8 @@ def existing_history():
     today_date = datetime.today().strftime('%d-%b-%y').upper()  # '02-SEP-25'
 
 
-    cursor.execute("""
-        SELECT * FROM kwt_denomination
+    cursor.execute(f"""
+        SELECT * FROM {KWT_DENOMINATION_TABLE}
         WHERE LOC_CODE = :loc_code
         AND cashier_id = :cashier_id
         AND TO_CHAR(CREATED_DT, 'DD-MON-RR') = :today_date
