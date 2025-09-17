@@ -38,7 +38,25 @@ banner = figlet_format(text, font="slant")
 print(banner)
 KWT_DENOMINATION_TABLE = "KWT_DENOMINATION_TEST" if DEBUG else "KWT_DENOMINATION"
 KWT_DENOMINATION_HISTORY_TABLE = "KWT_DENOMINATION_HISTORY_TEST" if DEBUG else "KWT_DENOMINATION_HISTORY"
+import socket
 
+def get_server_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # connect to any public IP (not actually sending data)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
+def get_environment():
+    ip = get_server_ip()
+    if ip == "172.16.4.167":
+        return "test"
+    elif ip == "172.16.4.253":
+        return "production"
+    else:
+        return "unknown"
 
 def connection():
     username = os.getenv("ORACLE_USER")
@@ -551,36 +569,148 @@ def home_get():
     return jsonify({"message": "GET request received" , "tables":tables})
 
 
-@app.route("/" , methods=['GET','POST'])
+# Convert version string to tuple for comparison
+def version_to_tuple(version_str):
+    try:
+        parts = version_str.split(".")
+        parts = [int(p) for p in parts]
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts)
+    except:
+        return (0, 0, 0)
+
+def version_to_int_tuple(ver_str):
+    return tuple(int(x) for x in ver_str.split("."))
+
+@app.route("/", methods=["GET", "POST"])
 def show_clickonce_info():
+    # --- Read local ClickOnce XML ---
     file_path = os.path.join("Deno", "Deno.application")
     tree = ET.parse(file_path)
     root = tree.getroot()
 
-    ns = {
-        "asmv1": "urn:schemas-microsoft-com:asm.v1"
-    }
-
+    ns = {"asmv1": "urn:schemas-microsoft-com:asm.v1"}
     assembly_identity = root.find("asmv1:assemblyIdentity", ns)
     app_name = assembly_identity.attrib.get("name") if assembly_identity is not None else "N/A"
     app_version = assembly_identity.attrib.get("version") if assembly_identity is not None else "N/A"
+
     if request.method == "POST":
-        return jsonify({"app_name":app_name , "app_version" : app_version})
-    else:
-        return f"""
-        <html>
-            <head><title>Deno ClickOnce Info</title></head>
-            <body>
-                <h1>Denominator Application Info</h1>
-                <p><strong>App Name:</strong> {app_name}</p>
-                <p><strong>Latest Version:</strong> {app_version}</p>
-            </body>
-        </html>
+        return jsonify({"app_name": app_name, "app_version": app_version})
+
+    # --- Fetch DB entries ---
+    conn = connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT loc_code, loc_name, pos_number, dev_ip, current_version
+        FROM kwt_denomination_version
+        ORDER BY loc_code, pos_number
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # --- Determine latest version ---
+    latest_version = max([r[4] for r in rows], key=version_to_int_tuple)
+
+    # --- Color logic ---
+    def color_for_version(version_str):
+        current = version_to_int_tuple(version_str)
+        latest = version_to_int_tuple(latest_version)
+
+        if current == latest:
+            return "#ffffff"  # white for latest
+        else:
+            # Compute a difference factor based on version numbers
+            diff_sum = sum(l - c for l, c in zip(latest, current))
+            lightness = max(25, 80 - diff_sum * 10)  # older → darker red
+            return f"hsl(0, 80%, {lightness}%)"  # red shades
+
+    # --- Build HTML cards ---
+    cards_html = ""
+    for r in rows:
+        loc_code, loc_name, pos_number, dev_ip, version = r
+        color = color_for_version(version)
+        cards_html += f"""
+        <div class="card" data-loc="{loc_code}" style="background-color:{color};">
+            <h3>{loc_name} ({loc_code}-{pos_number})</h3>
+            <p><strong>IP:</strong> {dev_ip}</p>
+            <p><strong>Installed Version:</strong> {version}</p>
+        </div>
         """
 
+    # --- Render HTML ---
+    return f"""
+    <html>
+        <head>
+         
+            <style>
+                body {{
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    margin: 20px;
+                    background-color: #f5f5f5;
+                }}
+                h1 {{
+                    color: #333;
+                }}
+                #filter-input {{
+                    padding: 10px;
+                    margin-bottom: 20px;
+                    font-size: 16px;
+                    width: 250px;
+                    border-radius: 5px;
+                    border: 1px solid #ccc;
+                }}
+                .cards-container {{
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 15px;
+                }}
+                .card {{
+                    flex: 1 1 220px;
+                    border-radius: 12px;
+                    padding: 15px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                    transition: transform 0.2s, box-shadow 0.2s;
+                    color: #333;
+                }}
+                .card:hover {{
+                    transform: translateY(-5px);
+                    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+                }}
+                .card h3 {{
+                    margin-top: 0;
+                    margin-bottom: 10px;
+                    font-size: 18px;
+                }}
+                .card p {{
+                    margin: 5px 0;
+                    font-size: 14px;
+                }}
+            </style>
+        </head>
+        <body>
+            <p><strong>Latest Version:</strong> {app_version}</p>
 
+            <input type="text" id="filter-input" placeholder="Filter by loc_code..." onkeyup="filterCards()">
+            
+            <div class="cards-container" id="cards-container">
+                {cards_html}
+            </div>
 
-
+            <script>
+                function filterCards() {{
+                    var input = document.getElementById('filter-input').value.toUpperCase();
+                    var cards = document.querySelectorAll('.card');
+                    cards.forEach(card => {{
+                        var loc = card.getAttribute('data-loc').toUpperCase();
+                        card.style.display = loc.includes(input) ? 'block' : 'none';
+                    }});
+                }}
+            </script>
+        </body>
+    </html>
+    """
 @app.route('/cashier_login' , methods=['POST'])
 def cashier_login():
     try:
@@ -703,6 +833,93 @@ def pull_new_version():
 
     except Exception as e:
         return jsonify({"status": "error", "exception": str(e)}), 500
+
+
+
+import time 
+@app.route("/version", methods=["GET", "POST"])
+def version():
+    conn = connection()
+    cur = conn.cursor()
+
+    if request.method == "POST":
+        data = request.json
+        loc_code = data.get("loc_code")
+        loc_name = data.get("loc_name")
+        pos_number = data.get("pos_number")
+        dev_ip = data.get("dev_ip")
+        current_version = data.get("current_version")
+
+        # Auto-detect environment
+        environment = get_environment()
+
+        sql = """
+        MERGE INTO kwt_denomination_version t
+        USING (SELECT :loc_code AS loc_code,
+                      :loc_name AS loc_name,
+                      :pos_number AS pos_number,
+                      :dev_ip AS dev_ip,
+                      :environment AS environment,
+                      :current_version AS current_version
+               FROM dual) s
+        ON (t.dev_ip = s.dev_ip)
+        WHEN MATCHED THEN
+            UPDATE SET
+                t.loc_code = s.loc_code,
+                t.loc_name = s.loc_name,
+                t.pos_number = s.pos_number,
+                t.last_updated_date = CURRENT_TIMESTAMP,
+                t.environment = s.environment,
+                t.current_version = CASE 
+                                      WHEN t.current_version <> s.current_version 
+                                      THEN s.current_version 
+                                      ELSE t.current_version 
+                                    END
+        WHEN NOT MATCHED THEN
+            INSERT (ID, loc_code, loc_name, pos_number, dev_ip, installed_date, last_updated_date, current_version, environment)
+            VALUES (kwt_denomination_version_seq.NEXTVAL, s.loc_code, s.loc_name, s.pos_number, s.dev_ip, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, s.current_version, s.environment)
+        """
+
+        cur.execute(sql, {
+            "loc_code": loc_code,
+            "loc_name": loc_name,
+            "pos_number": pos_number,
+            "dev_ip": dev_ip,
+            "current_version": current_version,
+            "environment": environment
+        })
+        conn.commit()
+
+        return jsonify({"status": "ok", "environment": environment, "message": "Version stored/updated"})
+    elif request.method == "GET":
+        cur.execute("""
+            SELECT ID, loc_code, loc_name, pos_number, dev_ip, 
+                   TO_CHAR(installed_date, 'YYYY-MM-DD HH24:MI:SS'),
+                   TO_CHAR(last_updated_date, 'YYYY-MM-DD HH24:MI:SS'),
+                   current_version,
+                   environment
+            FROM kwt_denomination_version
+        """)
+        rows = cur.fetchall()
+
+        result = []
+        for r in rows:
+            result.append({
+                "id": r[0],
+                "loc_code": r[1],
+                "loc_name": r[2],
+                "pos_number": r[3],
+                "dev_ip": r[4],
+                "installed_date": r[5],
+                "last_updated_date": r[6],
+                "current_version": r[7],
+                "environment": r[8]
+            })
+
+        return jsonify(result)
+
+    cur.close()
+    conn.close()
 
 
 

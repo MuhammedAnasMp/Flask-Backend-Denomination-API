@@ -15,5 +15,5 @@ env/
 # IDEs
 .vscode/
 .idea/
-
+*.md
 Deno - Copy
