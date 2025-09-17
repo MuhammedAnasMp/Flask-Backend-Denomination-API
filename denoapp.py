@@ -529,7 +529,9 @@ def existing_history():
 
     single_id = tables[0].get("ID") if tables else None
 
-    
+    for row in tables:
+        row.pop("CREATED_DT", None)
+
     cursor.close()
     conn.close()
 
