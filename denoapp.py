@@ -519,7 +519,7 @@ def existing_history():
         SELECT * FROM {KWT_DENOMINATION_TABLE}
         WHERE LOC_CODE = :loc_code
         AND cashier_id = :cashier_id
-        AND TO_CHAR(CREATED_DT, 'DD-MON-RR') = :today_date
+        AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = :today_date
     """, {"loc_code": loc_code, "cashier_id": cashier_id, "today_date": today_date})
 
     columns = [col[0] for col in cursor.description]
@@ -529,9 +529,7 @@ def existing_history():
 
     single_id = tables[0].get("ID") if tables else None
 
-    for row in tables:
-        row.pop("CREATED_DT", None)
-
+    
     cursor.close()
     conn.close()
 
@@ -609,10 +607,10 @@ def show_clickonce_info():
     rows = cur.fetchall()
     cur.close()
     conn.close()
+    print(rows)
+    latest_version = app_version
 
-    # --- Determine latest version ---
-    latest_version = max([r[4] for r in rows], key=version_to_int_tuple)
-
+    print("latest_version",latest_version)
     # --- Color logic ---
     def color_for_version(version_str):
         current = version_to_int_tuple(version_str)
@@ -638,7 +636,7 @@ def show_clickonce_info():
             <p><strong>Installed Version:</strong> {version}</p>
         </div>
         """
-
+    
     # --- Render HTML ---
     return f"""
     <html>
