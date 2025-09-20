@@ -602,22 +602,23 @@ def show_clickonce_info():
     conn = connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT loc_code, loc_name, pos_number, dev_ip, current_version
+        SELECT loc_code, loc_name, pos_number, dev_ip, current_version , installed_date , last_updated_date
         FROM kwt_denomination_version
         ORDER BY loc_code, pos_number
     """)
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    print(rows)
     latest_version = app_version
 
-    print("latest_version",latest_version)
     # --- Color logic ---
     def color_for_version(version_str):
         current = version_to_int_tuple(version_str)
         latest = version_to_int_tuple(latest_version)
 
+    
+        if current == (0,0,0,0):
+            return "#bbbb33"
         if current == latest:
             return "#ffffff"  # white for latest
         else:
@@ -629,21 +630,40 @@ def show_clickonce_info():
     # --- Build HTML cards ---
     cards_html = ""
     for r in rows:
-        loc_code, loc_name, pos_number, dev_ip, version = r
+        loc_code, loc_name, pos_number, dev_ip, version, installed_date, last_updated_date = r
         color = color_for_version(version)
+
+        # Ensure datetime objects, then format with AM/PM
+        if isinstance(installed_date, datetime):
+            installed_date_str = installed_date.strftime("%Y-%m-%d %I:%M %p")  # 12-hr with AM/PM
+        else:
+            installed_date_str = str(installed_date)
+
+        if isinstance(last_updated_date, datetime):
+            last_updated_date_str = last_updated_date.strftime("%Y-%m-%d %I:%M %p")
+        else:
+            last_updated_date_str = str(last_updated_date)
+
         cards_html += f"""
-        <div class="card" data-loc="{loc_code}" style="background-color:{color};">
-            <h3>{loc_name} ({loc_code}-{pos_number})</h3>
-            <p><strong>IP:</strong> {dev_ip}</p>
-            <p><strong>Installed Version:</strong> {version}</p>
-        </div>
+            <div class="card" 
+                data-loc="{ loc_code }" 
+                data-name="{ loc_name }" 
+                style="border-color:{ color };">
+                <h3>{ loc_name }</h3>
+                <span>{ loc_code }-{ pos_number }</span>
+                <p><strong>IP:</strong> <span class="copy-ip" onclick="copyToClipboard('{dev_ip}')">{dev_ip}</span></p>
+                <p><strong>Installed Version:</strong> { version }</p>
+                <p><strong>Installed Date:</strong> { installed_date_str }</p>
+                <p><strong>Last Updated Date:</strong> { last_updated_date_str }</p>
+            </div>
         """
+
     
     # --- Render HTML ---
     return f"""
     <html>
         <head>
-         
+        
             <style>
                 body {{
                     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -673,6 +693,8 @@ def show_clickonce_info():
                     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
                     transition: transform 0.2s, box-shadow 0.2s;
                     color: #333;
+                    background: #fff; /* Neutral background */
+                    border: 3px solid transparent; /* Dynamic border color */
                 }}
                 .card:hover {{
                     transform: translateY(-5px);
@@ -680,34 +702,67 @@ def show_clickonce_info():
                 }}
                 .card h3 {{
                     margin-top: 0;
-                    margin-bottom: 10px;
+                    margin-bottom: 8px;
                     font-size: 18px;
+                }}
+                .card span {{
+                    font-weight: 600;
+                    color: #555;
                 }}
                 .card p {{
                     margin: 5px 0;
                     font-size: 14px;
+                }}
+                .copy-ip {{
+                    color: #007bff;
+                    cursor: pointer;
+                    text-decoration: underline;
+                }}
+                .copy-ip:hover {{
+                    color: #0056b3;
                 }}
             </style>
         </head>
         <body>
             <p><strong>Latest Version:</strong> {app_version}</p>
 
-            <input type="text" id="filter-input" placeholder="Filter by loc_code..." onkeyup="filterCards()">
+            <input type="text" id="filter-input" placeholder="CTRL+K Filter by loc_code..." onkeyup="filterCards()">
             
             <div class="cards-container" id="cards-container">
                 {cards_html}
             </div>
 
             <script>
-                function filterCards() {{
-                    var input = document.getElementById('filter-input').value.toUpperCase();
-                    var cards = document.querySelectorAll('.card');
-                    cards.forEach(card => {{
-                        var loc = card.getAttribute('data-loc').toUpperCase();
-                        card.style.display = loc.includes(input) ? 'block' : 'none';
-                    }});
-                }}
-            </script>
+    function filterCards() {{
+        var input = document.getElementById('filter-input').value.toUpperCase();
+        var cards = document.querySelectorAll('.card');
+        cards.forEach(card => {{
+            var loc = card.getAttribute('data-loc').toUpperCase();
+            var name = card.querySelector('h3').textContent.toUpperCase();
+            card.style.display = (loc.includes(input) || name.includes(input)) ? 'block' : 'none';
+        }});
+    }}
+
+    function copyToClipboard(text) {{
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            navigator.clipboard.writeText(text).then(function() {{
+                console.log("Copied IP: " + text);
+            }}).catch(function(err) {{
+                console.error("Failed to copy: ", err);
+            }});
+        }} else {{
+            console.error("Clipboard API not supported.");
+        }}
+    }}
+
+    // Ctrl+K to focus search
+    document.addEventListener("keydown", function(event) {{
+        if (event.ctrlKey && event.key.toLowerCase() === "k") {{
+            event.preventDefault();
+            document.getElementById("filter-input").focus();
+        }}
+    }});
+</script>
         </body>
     </html>
     """
