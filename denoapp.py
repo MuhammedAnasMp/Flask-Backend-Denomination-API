@@ -602,9 +602,10 @@ def show_clickonce_info():
     conn = connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT loc_code, loc_name, pos_number, dev_ip, current_version , installed_date , last_updated_date
+       SELECT loc_code, loc_name, pos_number, dev_ip, current_version, installed_date, last_updated_date
         FROM kwt_denomination_version
-        ORDER BY loc_code, pos_number
+        ORDER BY installed_date DESC
+
     """)
     rows = cur.fetchall()
     cur.close()
@@ -953,7 +954,7 @@ def version():
                    TO_CHAR(last_updated_date, 'YYYY-MM-DD HH24:MI:SS'),
                    current_version,
                    environment
-            FROM kwt_denomination_version
+            FROM kwt_denomination_version 
         """)
         rows = cur.fetchall()
 
@@ -976,6 +977,32 @@ def version():
     cur.close()
     conn.close()
 
+
+@app.route("/helpus", methods=["POST"])
+def helpus():
+    conn = connection()
+    cursor = conn.cursor()
+    try:
+        data = request.json
+        sql = """
+            INSERT INTO kwt_denomination_Issue_report
+            (ID, TYPE, MESSAGE, USER_NAME, USER_ID, DATE_TIME, POS_NUMBER, DEV_IP , LOC_CODE)
+            VALUES (kwt_denomination_ISSUE_SEQ.NEXTVAL, :type, :message, :username, :userid, :datetime, :posnumber, :devip ,:loccode)
+        """
+        cursor.execute(sql, {
+            "type": data.get("Type"),
+            "message": data.get("Message"),
+            "username": data.get("UserName"),
+            "userid": data.get("UserId"),
+           "datetime": datetime.fromisoformat(data.get("Datetime")),
+            "posnumber": data.get("PosNumber"),
+            "devip": data.get("DevIp"),
+            "loccode": data.get("LocCode")
+        })
+        conn.commit()
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 if __name__ == '__main__':
