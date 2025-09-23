@@ -660,11 +660,9 @@ def show_clickonce_info():
         """
 
     
-    # --- Render HTML ---
     return f"""
-    <html>
+        <html>
         <head>
-        
             <style>
                 body {{
                     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -682,6 +680,23 @@ def show_clickonce_info():
                     border-radius: 5px;
                     border: 1px solid #ccc;
                 }}
+                #view-reports-btn {{
+                    padding: 10px 15px;
+                    margin-left: 10px;
+                    font-size: 16px;
+                    border-radius: 5px;
+                    border: none;
+                    background-color: #4CAF50;
+                    color: white;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                }}
+                #view-reports-btn:hover {{
+                    background-color: #45a049;
+                }}
+                .cards-container, .reports-container {{
+                    margin-top: 15px;
+                }}
                 .cards-container {{
                     display: flex;
                     flex-wrap: wrap;
@@ -694,8 +709,8 @@ def show_clickonce_info():
                     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
                     transition: transform 0.2s, box-shadow 0.2s;
                     color: #333;
-                    background: #fff; /* Neutral background */
-                    border: 3px solid transparent; /* Dynamic border color */
+                    background: #fff;
+                    border: 3px solid transparent;
                 }}
                 .card:hover {{
                     transform: translateY(-5px);
@@ -722,51 +737,108 @@ def show_clickonce_info():
                 .copy-ip:hover {{
                     color: #0056b3;
                 }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 15px;
+                }}
+                th, td {{
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }}
+                th {{
+                    background-color: #4CAF50;
+                    color: white;
+                }}
+                tr:nth-child(even) {{ background-color: #f2f2f2; }}
+                tr:hover {{ background-color: #ddd; }}
             </style>
         </head>
         <body>
             <p><strong>Latest Version:</strong> {app_version}</p>
 
             <input type="text" id="filter-input" placeholder="CTRL+K Filter by loc_code..." onkeyup="filterCards()">
+            <button id="view-reports-btn" onclick="showReports()">View Posts</button>
             
             <div class="cards-container" id="cards-container">
                 {cards_html}
             </div>
 
-            <script>
-    function filterCards() {{
-        var input = document.getElementById('filter-input').value.toUpperCase();
-        var cards = document.querySelectorAll('.card');
-        cards.forEach(card => {{
-            var loc = card.getAttribute('data-loc').toUpperCase();
-            var name = card.querySelector('h3').textContent.toUpperCase();
-            card.style.display = (loc.includes(input) || name.includes(input)) ? 'block' : 'none';
-        }});
-    }}
+            <div class="reports-container" id="reports-container" style="display:none;">
+               
+            </div>
 
-    function copyToClipboard(text) {{
-        if (navigator.clipboard && navigator.clipboard.writeText) {{
-            navigator.clipboard.writeText(text).then(function() {{
-                console.log("Copied IP: " + text);
-            }}).catch(function(err) {{
-                console.error("Failed to copy: ", err);
+        <script>
+        function filterCards() {{
+            var input = document.getElementById('filter-input').value;
+            var cardsContainer = document.getElementById('cards-container');
+            var reportsContainer = document.getElementById('reports-container');
+
+            if(input.trim() !== "") {{
+                // Show cards, hide reports
+                cardsContainer.style.display = 'flex';
+                reportsContainer.style.display = 'none';
+            }} else {{
+                // If input empty and reports loaded, keep reports hidden until button clicked
+                cardsContainer.style.display = 'flex';
+            }}
+
+            var filter = input.toUpperCase();
+            var cards = document.querySelectorAll('.card');
+            cards.forEach(card => {{
+                var loc = card.getAttribute('data-loc').toUpperCase();
+                var name = card.querySelector('h3').textContent.toUpperCase();
+                card.style.display = (loc.includes(filter) || name.includes(filter)) ? 'block' : 'none';
             }});
-        }} else {{
-            console.error("Clipboard API not supported.");
         }}
-    }}
 
-    // Ctrl+K to focus search
-    document.addEventListener("keydown", function(event) {{
-        if (event.ctrlKey && event.key.toLowerCase() === "k") {{
-            event.preventDefault();
-            document.getElementById("filter-input").focus();
+        function showReports() {{
+            var cardsContainer = document.getElementById('cards-container');
+            var reportsContainer = document.getElementById('reports-container');
+            var input = document.getElementById('filter-input').value;
+            
+            if(true) {{
+                // Fetch the reports table via AJAX
+                fetch('/helpus')
+                    .then(response => response.text())
+                    .then(html => {{
+                        reportsContainer.innerHTML = html;
+                        reportsContainer.style.display = 'block';
+                        cardsContainer.style.display = 'none';
+                    }})
+                    .catch(err => console.error("Failed to load reports:", err));
+            }} else {{
+                // If user typed something, show cards
+                reportsContainer.style.display = 'none';
+                cardsContainer.style.display = 'flex';
+            }}
         }}
-    }});
-</script>
+
+        function copyToClipboard(text) {{
+            if (navigator.clipboard && navigator.clipboard.writeText) {{
+                navigator.clipboard.writeText(text).then(function() {{
+                    console.log("Copied IP: " + text);
+                }}).catch(function(err) {{
+                    console.error("Failed to copy: ", err);
+                }});
+            }} else {{
+                console.error("Clipboard API not supported.");
+            }}
+        }}
+
+        // Ctrl+K to focus search
+        document.addEventListener("keydown", function(event) {{
+            if (event.ctrlKey && event.key.toLowerCase() === "k") {{
+                event.preventDefault();
+                document.getElementById("filter-input").focus();
+            }}
+        }});
+        </script>
         </body>
-    </html>
-    """
+        </html>
+        """
+
 @app.route('/cashier_login' , methods=['POST'])
 def cashier_login():
     try:
@@ -893,6 +965,9 @@ def pull_new_version():
 
 
 import time 
+from flask import request, jsonify
+# Assuming connection() and get_environment() are defined elsewhere
+
 @app.route("/version", methods=["GET", "POST"])
 def version():
     conn = connection()
@@ -924,13 +999,18 @@ def version():
                 t.loc_code = s.loc_code,
                 t.loc_name = s.loc_name,
                 t.pos_number = s.pos_number,
-                t.last_updated_date = CURRENT_TIMESTAMP,
                 t.environment = s.environment,
                 t.current_version = CASE 
                                       WHEN t.current_version <> s.current_version 
                                       THEN s.current_version 
                                       ELSE t.current_version 
-                                    END
+                                    END,
+                t.last_updated_date = CASE 
+                                        WHEN t.current_version <> s.current_version 
+                                        AND (t.current_version < s.current_version OR t.current_version IS NULL)
+                                        THEN CURRENT_TIMESTAMP 
+                                        ELSE t.last_updated_date 
+                                      END
         WHEN NOT MATCHED THEN
             INSERT (ID, loc_code, loc_name, pos_number, dev_ip, installed_date, last_updated_date, current_version, environment)
             VALUES (kwt_denomination_version_seq.NEXTVAL, s.loc_code, s.loc_name, s.pos_number, s.dev_ip, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, s.current_version, s.environment)
@@ -978,31 +1058,92 @@ def version():
     conn.close()
 
 
-@app.route("/helpus", methods=["POST"])
+@app.route("/helpus", methods=["POST","GET"])
 def helpus():
     conn = connection()
     cursor = conn.cursor()
-    try:
-        data = request.json
-        sql = """
-            INSERT INTO kwt_denomination_Issue_report
-            (ID, TYPE, MESSAGE, USER_NAME, USER_ID, DATE_TIME, POS_NUMBER, DEV_IP , LOC_CODE)
-            VALUES (kwt_denomination_ISSUE_SEQ.NEXTVAL, :type, :message, :username, :userid, :datetime, :posnumber, :devip ,:loccode)
-        """
-        cursor.execute(sql, {
-            "type": data.get("Type"),
-            "message": data.get("Message"),
-            "username": data.get("UserName"),
-            "userid": data.get("UserId"),
-           "datetime": datetime.fromisoformat(data.get("Datetime")),
-            "posnumber": data.get("PosNumber"),
-            "devip": data.get("DevIp"),
-            "loccode": data.get("LocCode")
-        })
-        conn.commit()
-        return jsonify({"status": "success"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+
+    if request.method =="POST":
+
+        try:
+            data = request.json
+            sql = """
+                INSERT INTO kwt_denomination_Issue_report
+                (ID, TYPE, MESSAGE, USER_NAME, USER_ID, DATE_TIME, POS_NUMBER, DEV_IP , LOC_CODE)
+                VALUES (kwt_denomination_ISSUE_SEQ.NEXTVAL, :type, :message, :username, :userid, :datetime, :posnumber, :devip ,:loccode)
+            """
+            cursor.execute(sql, {
+                "type": data.get("Type"),
+                "message": data.get("Message"),
+                "username": data.get("UserName"),
+                "userid": data.get("UserId"),
+                "datetime": datetime.fromisoformat(data.get("Datetime")),
+                "posnumber": data.get("PosNumber"),
+                "devip": data.get("DevIp"),
+                "loccode": data.get("LocCode")
+            })
+            conn.commit()
+            return jsonify({"status": "success"}), 200
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+    else:
+        try:
+            cursor.execute("""
+                SELECT ID, TYPE, MESSAGE, USER_NAME, USER_ID, DATE_TIME, POS_NUMBER, DEV_IP, LOC_CODE
+                FROM kwt_denomination_Issue_report
+                ORDER BY DATE_TIME DESC
+            """)
+            rows = cursor.fetchall()
+            # HTML template for table
+            html_template = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Posts from locations</title>
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 20px; }
+                    table { border-collapse: collapse; width: 100%; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background-color: #4CAF50; color: white; }
+                    tr:nth-child(even) { background-color: #f2f2f2; }
+                    tr:hover { background-color: #ddd; }
+                    h2 { color: #333; }
+                </style>
+            </head>
+            <body>
+                <h2>Posted resports</h2>
+                <table>
+                    <tr>
+                        <th>ID</th>
+                        <th>Type</th>
+                        <th>Message</th>
+                        <th>User Name</th>
+                        <th>User ID</th>
+                        <th>Date Time</th>
+                        <th>POS Number</th>
+                        <th>Dev IP</th>
+                        <th>Loc Code</th>
+                    </tr>
+                    {% for row in rows %}
+                    <tr>
+                        <td>{{ row[0] }}</td>
+                        <td>{{ row[1] }}</td>
+                        <td>{{ row[2] }}</td>
+                        <td>{{ row[3] }}</td>
+                        <td>{{ row[4] }}</td>
+                        <td>{{ row[5] }}</td>
+                        <td>{{ row[6] }}</td>
+                        <td>{{ row[7] }}</td>
+                        <td>{{ row[8] }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </body>
+            </html>
+            """
+            return render_template_string(html_template, rows=rows)
+        except Exception as e:
+            return f"Error: {str(e)}"
 
 
 if __name__ == '__main__':
