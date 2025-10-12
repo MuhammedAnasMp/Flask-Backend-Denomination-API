@@ -26,13 +26,12 @@ for arg in sys.argv[1:]:
     if arg.lower().startswith("debug="):
         debug_arg = arg.split("=", 1)[1].lower()
 
-# 2️⃣ Decide DEBUG mode
+
 if debug_arg is not None:
     DEBUG = debug_arg == "true"
 else:
     DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-# 3️⃣ Print banner
 text = "DEVELOPMENT" if DEBUG else "PRODUCTION"
 banner = figlet_format(text, font="slant")
 print(banner)
