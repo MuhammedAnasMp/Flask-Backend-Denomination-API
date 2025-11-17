@@ -3,7 +3,7 @@ import random
 app = Flask(__name__)
 import oracledb
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime,timedelta
 import json
 import re
 import os
@@ -493,11 +493,31 @@ def denominations():
         
             grouped_result = group_statuses(result)
 
+            suspended_bills = []
+          
+            for summary_data in result:
+                if summary_data.get('STATUS') == "SUSPENDED" and summary_data.get('BILL_COUNT')  > 0: 
+                    print("i found one bill")
+                    query = """
+                    SELECT PTHCR as POS_NUMBER , PTHAMOUNTSALES as AMOUNT , PTHTXNUM as BILL_NUMBER , TO_CHAR(PTHEND, 'hh:mi AM') AS BILL_TIME FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER WHERE PTHSITE= :store_id AND PTHBUSDATE= TRUNC(SYSDATE-6/24) AND PTHSTATUS=2 AND PTHCASHIER= :cashier_id  And pthmode =1 and pthstatus =2 and pthtype =1  AND PTHAMOUNTSALES-PTHAMOUNTRETURNS <>0 
+                        """
+                    params = {
+                        "store_id": store_id,
+                        "cashier_id": cashier_id
+                    }
+               
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+                    columns = [col[0] for col in cur.description]
+
+               
+                    for row in rows:
+                        print(row)
+                        suspended_bills.append(dict(zip(columns, row)))
+                    suspended_bills = sorted(suspended_bills, key=lambda x: x["BILL_NUMBER"])
 
 
-            print({"data": records, "transaction_report": grouped_result})
-
-            return jsonify({"data": records, "transaction_report": grouped_result}), 200
+            return jsonify({"data": records, "transaction_report": grouped_result , "suspended_bills": suspended_bills }), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
         finally:
@@ -514,12 +534,18 @@ def existing_history():
     today_date = datetime.today().strftime('%d-%b-%y').upper()  # '02-SEP-25'
 
 
+    # cursor.execute(f"""
+    #     SELECT * FROM {KWT_DENOMINATION_TABLE}
+    #     WHERE LOC_CODE = :loc_code
+    #     AND cashier_id = :cashier_id
+    #     AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = :today_date
+    # """, {"loc_code": loc_code, "cashier_id": cashier_id, "today_date": today_date})
     cursor.execute(f"""
         SELECT * FROM {KWT_DENOMINATION_TABLE}
         WHERE LOC_CODE = :loc_code
         AND cashier_id = :cashier_id
-        AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = :today_date
-    """, {"loc_code": loc_code, "cashier_id": cashier_id, "today_date": today_date})
+        AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = TRUNC(SYSDATE - 1) 
+    """, {"loc_code": loc_code, "cashier_id": cashier_id})
 
     columns = [col[0] for col in cursor.description]
     rows = cursor.fetchall()
@@ -848,8 +874,8 @@ def cashier_login():
         print(request.get_json())
         if DEBUG :
             if pin =="" and cashier_id =="":
-                cashier_id=80322
-                pin=4321
+                cashier_id=80937
+                pin=10753
             else:
                 try:
                     cashier_id = int(cashier_id)
