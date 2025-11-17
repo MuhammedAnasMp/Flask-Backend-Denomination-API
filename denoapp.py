@@ -544,7 +544,7 @@ def existing_history():
         SELECT * FROM {KWT_DENOMINATION_TABLE}
         WHERE LOC_CODE = :loc_code
         AND cashier_id = :cashier_id
-        AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = TRUNC(SYSDATE - 1) 
+        AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = TRUNC(SYSDATE) 
     """, {"loc_code": loc_code, "cashier_id": cashier_id})
 
     columns = [col[0] for col in cursor.description]
