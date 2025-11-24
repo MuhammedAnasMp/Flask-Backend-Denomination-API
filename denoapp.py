@@ -16,9 +16,19 @@ import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 import subprocess
 from pyfiglet import figlet_format
+import threading
 load_dotenv()
 from flask import Flask, request, g
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+
+import requests
+
+
+
+
+
+back_days = 0
+
 
 import sys
 debug_arg = None
@@ -163,6 +173,76 @@ def serve_file(filename):
     except Exception as e:
         print(f"Error serving file {filename}: {e}")
         abort(500)
+
+
+
+
+
+
+
+
+
+def send_data_async(store_id , cashier_id ,suspended_bills):
+    
+    conn = connection()
+    cur = conn.cursor()
+
+    try:
+        query = "SELECT * FROM label_printers WHERE LBL_LOC_CODE = :store_id"
+        cur.execute(query, {"store_id": store_id})
+        row = cur.fetchone()
+        if row:
+            StoreName = row[0]  # first column
+            print("StoreName from DB:", StoreName)
+
+        query = """
+            SELECT 
+                NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
+                NVL( 
+                    CASE 
+                        WHEN pcacashierid = 786 THEN 'ADMIN'
+                        ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
+                    END,
+                    'INVALID'
+                ) AS status,
+                (
+                    SELECT MAX(udgprenom)
+                    FROM goldprod.vasuserdg@gold_server
+                    WHERE udgcode = pcacashierid
+                ) AS name
+            FROM (
+                SELECT pcacashierid, pcaauthlevel
+                FROM goldprod.poscashier@gold_server
+                WHERE pcacashierid = :cashier_id
+                
+            )
+        """
+
+
+        cur.execute(query, cashier_id=cashier_id)
+        row = cur.fetchone()
+
+        response = {}
+        if row and row[1].lower() != "invalid":
+            CreatedByName = row[2].capitalize()
+        
+
+
+        url = "http://172.16.4.167:4000/send-data"
+        data = {
+        "StoreName": StoreName,
+        "CreatedById": cashier_id,
+        "CreatedByName": CreatedByName,
+        "suspendedBills": suspended_bills
+        }
+        requests.post(url, json=data, timeout=1)  
+        print(response.json())        
+    except Exception as e:
+        print(e)
+    finally:
+        cur.close()
+        conn.close()
+
 
 @app.route('/api/denominations', methods=['POST', 'GET'])
 def denominations():
@@ -343,8 +423,12 @@ def denominations():
     else:
     # print denomination data is returnd by else case  
         id = request.args.get('Id')
+        # id = 44
         store_id = request.args.get('LocCode')
+        # store_id = 813
         cashier_id = request.args.get('UserId')
+        # cashier_id = 8109
+     
         if not cashier_id:
             return jsonify({"error": "Missing userId parameter"}), 400
         if not store_id:
@@ -397,10 +481,10 @@ def denominations():
                     , 'FM00') AS HOURS_SPENT_IN_POS
                     FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER
                     WHERE PTHSITE = :store_id
-                    AND PTHBUSDATE = TRUNC(SYSDATE - 6/24) 
+                    AND PTHBUSDATE = TRUNC(SYSDATE -(:back_days + 6/24))
                     AND PTHCASHIER = :cashier_id
                     GROUP BY PTHCASHIER
-                """, {"store_id": store_id, "cashier_id": cashier_id})
+                """, {"store_id": store_id, "cashier_id": cashier_id , "back_days": back_days})
 
             bill_row = cur.fetchone()
             row_dict = {
@@ -430,18 +514,19 @@ def denominations():
           
             query = """
                 --VOID 
-                SELECT 'VOID' STATUS, AUTHORIZED_BY||'-'||SUPERVISOR_NAME NAME, COUNT(DISTINCT RECEIPT_NO||COUNTER_NO)BILL_COUNT,SUM(LINE_VALUE)VALUE FROM GOLDPROD.GRAND_POS_REQ_AUTHORIZATION@GOLD_SERVER G WHERE STORE_GROUP = STORE_ID AND BUSINESS_DATE = TRUNC(SYSDATE - 6/24) AND STORE_ID =:store_id AND CASHIER_ID= :cashier_id AND REQUESTED_ACTION='Cancel line' GROUP BY AUTHORIZED_BY||'-'||SUPERVISOR_NAME UNION ALL
+                SELECT 'VOID' STATUS, AUTHORIZED_BY||'-'||SUPERVISOR_NAME NAME, COUNT(DISTINCT RECEIPT_NO||COUNTER_NO)BILL_COUNT,SUM(LINE_VALUE)VALUE FROM GOLDPROD.GRAND_POS_REQ_AUTHORIZATION@GOLD_SERVER G WHERE STORE_GROUP = STORE_ID AND BUSINESS_DATE = TRUNC(SYSDATE - (:back_days + 6/24)) AND STORE_ID =:store_id AND CASHIER_ID= :cashier_id AND REQUESTED_ACTION='Cancel line' GROUP BY AUTHORIZED_BY||'-'||SUPERVISOR_NAME UNION ALL
                 --RETURN
-                SELECT 'RETURN' STATUS, AUTHORIZED_BY||'-'||SUPERVISOR_NAME NAME, COUNT(DISTINCT RECEIPT_NO||COUNTER_NO)BILL_COUNT,SUM(LINE_VALUE)VALUE FROM GOLDPROD.GRAND_POS_REQ_AUTHORIZATION@GOLD_SERVER G WHERE STORE_GROUP = STORE_ID AND BUSINESS_DATE = TRUNC(SYSDATE - 6/24) AND STORE_ID =:store_id AND CASHIER_ID= :cashier_id AND REQUESTED_ACTION='Product Return' GROUP BY AUTHORIZED_BY||'-'||SUPERVISOR_NAME UNION ALL
+                SELECT 'RETURN' STATUS, AUTHORIZED_BY||'-'||SUPERVISOR_NAME NAME, COUNT(DISTINCT RECEIPT_NO||COUNTER_NO)BILL_COUNT,SUM(LINE_VALUE)VALUE FROM GOLDPROD.GRAND_POS_REQ_AUTHORIZATION@GOLD_SERVER G WHERE STORE_GROUP = STORE_ID AND BUSINESS_DATE = TRUNC(SYSDATE - (:back_days + 6/24)) AND STORE_ID =:store_id AND CASHIER_ID= :cashier_id AND REQUESTED_ACTION='Product Return' GROUP BY AUTHORIZED_BY||'-'||SUPERVISOR_NAME UNION ALL
                 --VOID ALL 
-                SELECT 'VOID ALL' STATUS, AUTHORIZED_BY||'-'||SUPERVISOR_NAME NAME, COUNT(DISTINCT RECEIPT_NO||COUNTER_NO)BILL_COUNT,SUM(LINE_VALUE)VALUE FROM GOLDPROD.GRAND_POS_CANCEL_RECEIPT_D@GOLD_SERVER G WHERE BUSINESS_DATE = TRUNC(SYSDATE - 6/24) AND STORE_ID =:store_id AND SITE_GROUP = STORE_ID AND CASHIER_ID= :cashier_id GROUP BY AUTHORIZED_BY||'-'||SUPERVISOR_NAME UNION ALL 
+                SELECT 'VOID ALL' STATUS, AUTHORIZED_BY||'-'||SUPERVISOR_NAME NAME, COUNT(DISTINCT RECEIPT_NO||COUNTER_NO)BILL_COUNT,SUM(LINE_VALUE)VALUE FROM GOLDPROD.GRAND_POS_CANCEL_RECEIPT_D@GOLD_SERVER G WHERE BUSINESS_DATE = TRUNC(SYSDATE - (:back_days + 6/24)) AND STORE_ID =:store_id AND SITE_GROUP = STORE_ID AND CASHIER_ID= :cashier_id GROUP BY AUTHORIZED_BY||'-'||SUPERVISOR_NAME UNION ALL 
                 --SUSPENDED
-                SELECT DISTINCT 'SUSPENDED' STATUS,'',COUNT(*) BILL_COUNT,SUM(PTHAMOUNTSALES-PTHAMOUNTRETURNS)VALUE FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER WHERE PTHSITE= : store_id AND PTHBUSDATE= TRUNC(SYSDATE - 6/24) AND PTHSTATUS=2 AND PTHCASHIER= :cashier_id  AND PTHAMOUNTSALES-PTHAMOUNTRETURNS <>0
+                SELECT DISTINCT 'SUSPENDED' STATUS,'',COUNT(*) BILL_COUNT,SUM(PTHAMOUNTSALES-PTHAMOUNTRETURNS)VALUE FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER WHERE PTHSITE= : store_id AND PTHBUSDATE= TRUNC(SYSDATE - (:back_days + 6/24)) AND PTHSTATUS=2 AND PTHCASHIER= :cashier_id  AND PTHAMOUNTSALES-PTHAMOUNTRETURNS <>0
                 
                 """
             params = {
                 "store_id": store_id,
-                "cashier_id": cashier_id
+                "cashier_id": cashier_id ,
+                 "back_days": back_days
             }
             cur.execute(query, params)
             rows = cur.fetchall()
@@ -499,11 +584,12 @@ def denominations():
                 if summary_data.get('STATUS') == "SUSPENDED" and summary_data.get('BILL_COUNT')  > 0: 
                     print("i found one bill")
                     query = """
-                    SELECT PTHCR as POS_NUMBER , PTHAMOUNTSALES as AMOUNT , PTHTXNUM as BILL_NUMBER , TO_CHAR(PTHEND, 'hh:mi AM') AS BILL_TIME FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER WHERE PTHSITE= :store_id AND PTHBUSDATE= TRUNC(SYSDATE-6/24) AND PTHSTATUS=2 AND PTHCASHIER= :cashier_id  And pthmode =1 and pthstatus =2 and pthtype =1  AND PTHAMOUNTSALES-PTHAMOUNTRETURNS <>0 
+                    SELECT PTHCR as POS_NUMBER , PTHAMOUNTSALES as AMOUNT , PTHTXNUM as BILL_NUMBER , TO_CHAR(PTHEND, 'hh:mi AM') AS BILL_TIME FROM GOLDPROD.POSTRAHEADER@GOLD_SERVER WHERE PTHSITE= :store_id AND PTHBUSDATE= TRUNC(SYSDATE -(:back_days + 6/24)) AND PTHSTATUS=2 AND PTHCASHIER= :cashier_id  And pthmode =1 and pthstatus =2 and pthtype =1  AND PTHAMOUNTSALES-PTHAMOUNTRETURNS <>0 
                         """
                     params = {
                         "store_id": store_id,
-                        "cashier_id": cashier_id
+                        "cashier_id": cashier_id,
+                         "back_days": back_days
                     }
                
                     cur.execute(query, params)
@@ -516,7 +602,7 @@ def denominations():
                         suspended_bills.append(dict(zip(columns, row)))
                     suspended_bills = sorted(suspended_bills, key=lambda x: x["BILL_NUMBER"])
 
-
+                    threading.Thread(target=send_data_async, args=(store_id,cashier_id ,suspended_bills,), daemon=True).start() 
             return jsonify({"data": records, "transaction_report": grouped_result , "suspended_bills": suspended_bills }), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -544,8 +630,8 @@ def existing_history():
         SELECT * FROM {KWT_DENOMINATION_TABLE}
         WHERE LOC_CODE = :loc_code
         AND cashier_id = :cashier_id
-        AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = TRUNC(SYSDATE) 
-    """, {"loc_code": loc_code, "cashier_id": cashier_id})
+        AND TO_CHAR(DOC_DATE, 'DD-MON-RR') = TRUNC(SYSDATE-:back_days) 
+    """, {"loc_code": loc_code, "cashier_id": cashier_id , "back_days": back_days})
 
     columns = [col[0] for col in cursor.description]
     rows = cursor.fetchall()
