@@ -30,6 +30,7 @@ import requests
 back_days = 0
 
 
+print(back_days)
 import sys
 debug_arg = None
 for arg in sys.argv[1:]:

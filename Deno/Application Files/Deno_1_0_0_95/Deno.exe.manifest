@@ -43,14 +43,14 @@
     </dependentAssembly>
   </dependency>
   <dependency>
-    <dependentAssembly dependencyType="install" allowDelayedBinding="true" codebase="Deno.exe" size="328192">
+    <dependentAssembly dependencyType="install" allowDelayedBinding="true" codebase="Deno.exe" size="327168">
       <assemblyIdentity name="Deno" version="1.0.0.1" language="neutral" processorArchitecture="msil" />
       <hash>
         <dsig:Transforms>
           <dsig:Transform Algorithm="urn:schemas-microsoft-com:HashTransforms.Identity" />
         </dsig:Transforms>
         <dsig:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha256" />
-        <dsig:DigestValue>GxM5INA4N30DLXsruLQFQQiW9fT55v2H+V0WKhO6wRs=</dsig:DigestValue>
+        <dsig:DigestValue>Dm+EqYf/VGGLyTSMS0Rr/41J8LPLMeyOAeZJ6WboaZg=</dsig:DigestValue>
       </hash>
     </dependentAssembly>
   </dependency>
