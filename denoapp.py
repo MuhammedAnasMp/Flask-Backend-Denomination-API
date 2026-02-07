@@ -20,6 +20,7 @@ import threading
 load_dotenv()
 from flask import Flask, request, g
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+from collections import defaultdict
 
 import requests
 
@@ -578,7 +579,84 @@ def denominations():
             
         
             grouped_result = group_statuses(result)
+            query = """
+            SELECT 
+                PTHBUSDATE,
+                PTHSITE,
+                PTHCASHIER,
+                COUNT(CASE WHEN PTCREFCODE = 6512740 THEN 1 END) AS GRANDME_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 6512740 THEN PTCAMOUNT ELSE 0 END) AS GRANDME,
+                COUNT(CASE WHEN PTCREFCODE = 7109867 THEN 1 END) AS GIFTCARD_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 7109867 THEN PTCAMOUNT ELSE 0 END) AS GIFTCARD,
+                COUNT(CASE WHEN PTCREFCODE = 7798507 THEN 1 END) AS GARMENTS_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 7798507 THEN PTCAMOUNT ELSE 0 END) AS GARMENTS,
+                COUNT(CASE WHEN PTCREFCODE = 7676823 THEN 1 END) AS UNILIVER_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 7676823 THEN PTCAMOUNT ELSE 0 END) AS UNILIVER
+            FROM GOLDPROD.postracard@GOLD_SERVER a
+            JOIN GOLDPROD.POSTRAHEADER@GOLD_SERVER b
+            ON a.PTCTXID = b.PTHID
+            WHERE PTCTENDERID = :tender_id
+            AND PTHSITE = :site
+            AND PTHCASHIER = :cashier
+            AND PTHBUSDATE = TRUNC(SYSDATE - (:back_days + 6/24))
+            GROUP BY PTHBUSDATE, PTHSITE, PTHCASHIER
+            """
+            params = {
+                "tender_id": "52",
+                "site": store_id,
+                "cashier": cashier_id,
+                "back_days": back_days
+            }
+            
 
+
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [col[0] for col in cur.description]
+
+            # Convert to list of dicts
+            result = [dict(zip(columns, row)) for row in rows]
+
+            # --- 4. Initialize vouchers ---
+            vouchers = []
+            total_value = 0
+
+            total_count = 0
+            # --- 5. Only process if data exists ---
+            if result:
+                # Dynamically detect voucher columns based on *_COUNT columns
+                voucher_columns = [col.replace("_COUNT", "") for col in result[0].keys() if col.endswith("_COUNT")]
+
+                for voucher in voucher_columns:
+                    count = result[0].get(f"{voucher}_COUNT", 0)
+                    value = result[0].get(voucher, 0)
+
+                    # Skip if count is 0
+                    if count <= 0:
+                        continue
+
+                    vouchers.append({
+                        "NAME": voucher,
+                        "BILL_COUNT": count,
+                        "VALUE": float(value)  # ensure float
+                    })
+
+                    total_count += count
+                    total_value += value
+
+                # --- 6. Append TOTAL row ---
+                vouchers.append({
+                    "NAME": "__TOTAL__",
+                    "BILL_COUNT": total_count,
+                    "VALUE": float(total_value)
+                })
+
+                if voucher:
+                    grouped_result = {"Vouchers": vouchers}
+
+                # --- 7. Prepare final JSON ---
+
+                                    
             suspended_bills = []
           
             for summary_data in result:
@@ -604,6 +682,12 @@ def denominations():
                     suspended_bills = sorted(suspended_bills, key=lambda x: x["BILL_NUMBER"])
 
                     threading.Thread(target=send_data_async, args=(store_id,cashier_id ,suspended_bills,), daemon=True).start() 
+
+
+
+            print(grouped_result)
+    
+
             return jsonify({"data": records, "transaction_report": grouped_result , "suspended_bills": suspended_bills }), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
