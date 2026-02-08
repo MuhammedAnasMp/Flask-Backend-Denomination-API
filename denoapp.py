@@ -614,37 +614,32 @@ def denominations():
             rows = cur.fetchall()
             columns = [col[0] for col in cur.description]
 
-            # Convert to list of dicts
             result = [dict(zip(columns, row)) for row in rows]
 
-            # --- 4. Initialize vouchers ---
             vouchers = []
             total_value = 0
 
             total_count = 0
-            # --- 5. Only process if data exists ---
             if result:
-                # Dynamically detect voucher columns based on *_COUNT columns
                 voucher_columns = [col.replace("_COUNT", "") for col in result[0].keys() if col.endswith("_COUNT")]
 
                 for voucher in voucher_columns:
                     count = result[0].get(f"{voucher}_COUNT", 0)
                     value = result[0].get(voucher, 0)
 
-                    # Skip if count is 0
                     if count <= 0:
                         continue
 
                     vouchers.append({
                         "NAME": voucher,
                         "BILL_COUNT": count,
-                        "VALUE": float(value)  # ensure float
+                        "VALUE": float(value)  
                     })
 
                     total_count += count
                     total_value += value
 
-                # --- 6. Append TOTAL row ---
+            
                 vouchers.append({
                     "NAME": "__TOTAL__",
                     "BILL_COUNT": total_count,
@@ -652,9 +647,8 @@ def denominations():
                 })
 
                 if voucher:
-                    grouped_result = {"Vouchers": vouchers}
+                    grouped_result['Vouchers'] = vouchers
 
-                # --- 7. Prepare final JSON ---
 
                                     
             suspended_bills = []
@@ -1043,10 +1037,10 @@ def cashier_login():
         cashier_id = data.get("cashier_id")
         pin = data.get("password")
         print(request.get_json())
-        if DEBUG :
-            if pin =="" and cashier_id =="":
-                cashier_id=80937
-                pin=10753
+        execute_no_pin_query = False
+        if DEBUG or get_environment() == 'test' :
+            if pin =="":
+                execute_no_pin_query =True
             else:
                 try:
                     cashier_id = int(cashier_id)
@@ -1065,31 +1059,54 @@ def cashier_login():
                     return jsonify({"message": "Username and password must be numeric"}), 400
         conn = connection() 
         cursor = conn.cursor()
-        query = """
-            SELECT 
-                NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
-                NVL( 
-                    CASE 
-                        WHEN pcacashierid = 786 THEN 'ADMIN'
-                        ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
-                    END,
-                    'INVALID'
-                ) AS status,
-                (
-                    SELECT MAX(udgprenom)
-                    FROM goldprod.vasuserdg@gold_server
-                    WHERE udgcode = pcacashierid
-                ) AS name
-            FROM (
-                SELECT pcacashierid, pcaauthlevel
-                FROM goldprod.poscashier@gold_server
-                WHERE pcacashierid = :cashier_id
-                AND pcapin = :pin
-            )
-        """
 
-
-        cursor.execute(query, cashier_id=cashier_id, pin=pin)
+        if execute_no_pin_query:
+            query = """
+                SELECT 
+                    NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
+                    NVL( 
+                        CASE 
+                            WHEN pcacashierid = 786 THEN 'ADMIN'
+                            ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
+                        END,
+                        'INVALID'
+                    ) AS status,
+                    (
+                        SELECT MAX(udgprenom)
+                        FROM goldprod.vasuserdg@gold_server
+                        WHERE udgcode = pcacashierid
+                    ) AS name
+                FROM (
+                    SELECT pcacashierid, pcaauthlevel
+                    FROM goldprod.poscashier@gold_server
+                    WHERE pcacashierid = :cashier_id
+                )
+            """
+            cursor.execute(query, cashier_id=cashier_id)
+        else:
+            query = """
+                SELECT 
+                    NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
+                    NVL( 
+                        CASE 
+                            WHEN pcacashierid = 786 THEN 'ADMIN'
+                            ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
+                        END,
+                        'INVALID'
+                    ) AS status,
+                    (
+                        SELECT MAX(udgprenom)
+                        FROM goldprod.vasuserdg@gold_server
+                        WHERE udgcode = pcacashierid
+                    ) AS name
+                FROM (
+                    SELECT pcacashierid, pcaauthlevel
+                    FROM goldprod.poscashier@gold_server
+                    WHERE pcacashierid = :cashier_id
+                    AND pcapin = :pin
+                )
+            """
+            cursor.execute(query, cashier_id=cashier_id, pin=pin)
         row = cursor.fetchone()
 
         response = {}
