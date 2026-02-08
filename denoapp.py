@@ -578,7 +578,78 @@ def denominations():
             
         
             grouped_result = group_statuses(result)
+            query = """
+            SELECT 
+                PTHBUSDATE,
+                PTHSITE,
+                PTHCASHIER,
+                COUNT(CASE WHEN PTCREFCODE = 6512740 THEN 1 END) AS GRANDME_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 6512740 THEN PTCAMOUNT ELSE 0 END) AS GRANDME,
+                COUNT(CASE WHEN PTCREFCODE = 7109867 THEN 1 END) AS GIFTCARD_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 7109867 THEN PTCAMOUNT ELSE 0 END) AS GIFTCARD,
+                COUNT(CASE WHEN PTCREFCODE = 7798507 THEN 1 END) AS GARMENTS_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 7798507 THEN PTCAMOUNT ELSE 0 END) AS GARMENTS,
+                COUNT(CASE WHEN PTCREFCODE = 7676823 THEN 1 END) AS UNILIVER_COUNT,
+                SUM  (CASE WHEN PTCREFCODE = 7676823 THEN PTCAMOUNT ELSE 0 END) AS UNILIVER
+            FROM GOLDPROD.postracard@GOLD_SERVER a
+            JOIN GOLDPROD.POSTRAHEADER@GOLD_SERVER b
+            ON a.PTCTXID = b.PTHID
+            WHERE PTCTENDERID = :tender_id
+            AND PTHSITE = :site
+            AND PTHCASHIER = :cashier
+            AND PTHBUSDATE = TRUNC(SYSDATE - (:back_days + 6/24))
+            GROUP BY PTHBUSDATE, PTHSITE, PTHCASHIER
+            """
+            params = {
+                "tender_id": "52",
+                "site": store_id,
+                "cashier": cashier_id,
+                "back_days": back_days
+            }
+            
 
+
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            columns = [col[0] for col in cur.description]
+
+            result = [dict(zip(columns, row)) for row in rows]
+
+            vouchers = []
+            total_value = 0
+
+            total_count = 0
+            if result:
+                voucher_columns = [col.replace("_COUNT", "") for col in result[0].keys() if col.endswith("_COUNT")]
+
+                for voucher in voucher_columns:
+                    count = result[0].get(f"{voucher}_COUNT", 0)
+                    value = result[0].get(voucher, 0)
+
+                    if count <= 0:
+                        continue
+
+                    vouchers.append({
+                        "NAME": voucher,
+                        "BILL_COUNT": count,
+                        "VALUE": float(value)  
+                    })
+
+                    total_count += count
+                    total_value += value
+
+            
+                vouchers.append({
+                    "NAME": "__TOTAL__",
+                    "BILL_COUNT": total_count,
+                    "VALUE": float(total_value)
+                })
+
+                if voucher:
+                    grouped_result['Vouchers'] = vouchers
+
+
+                                    
             suspended_bills = []
           
             for summary_data in result:
@@ -959,10 +1030,10 @@ def cashier_login():
         cashier_id = data.get("cashier_id")
         pin = data.get("password")
         print(request.get_json())
-        if DEBUG :
-            if pin =="" and cashier_id =="":
-                cashier_id=80937
-                pin=10753
+        execute_no_pin_query = False
+        if DEBUG or get_environment() == 'test' :
+            if pin =="":
+                execute_no_pin_query =True
             else:
                 try:
                     cashier_id = int(cashier_id)
@@ -981,31 +1052,54 @@ def cashier_login():
                     return jsonify({"message": "Username and password must be numeric"}), 400
         conn = connection() 
         cursor = conn.cursor()
-        query = """
-            SELECT 
-                NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
-                NVL( 
-                    CASE 
-                        WHEN pcacashierid = 786 THEN 'ADMIN'
-                        ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
-                    END,
-                    'INVALID'
-                ) AS status,
-                (
-                    SELECT MAX(udgprenom)
-                    FROM goldprod.vasuserdg@gold_server
-                    WHERE udgcode = pcacashierid
-                ) AS name
-            FROM (
-                SELECT pcacashierid, pcaauthlevel
-                FROM goldprod.poscashier@gold_server
-                WHERE pcacashierid = :cashier_id
-                AND pcapin = :pin
-            )
-        """
 
-
-        cursor.execute(query, cashier_id=cashier_id, pin=pin)
+        if execute_no_pin_query:
+            query = """
+                SELECT 
+                    NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
+                    NVL( 
+                        CASE 
+                            WHEN pcacashierid = 786 THEN 'ADMIN'
+                            ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
+                        END,
+                        'INVALID'
+                    ) AS status,
+                    (
+                        SELECT MAX(udgprenom)
+                        FROM goldprod.vasuserdg@gold_server
+                        WHERE udgcode = pcacashierid
+                    ) AS name
+                FROM (
+                    SELECT pcacashierid, pcaauthlevel
+                    FROM goldprod.poscashier@gold_server
+                    WHERE pcacashierid = :cashier_id
+                )
+            """
+            cursor.execute(query, cashier_id=cashier_id)
+        else:
+            query = """
+                SELECT 
+                    NVL(TO_CHAR(pcacashierid), '786') AS pcacashierid,
+                    NVL( 
+                        CASE 
+                            WHEN pcacashierid = 786 THEN 'ADMIN'
+                            ELSE DECODE(pcaauthlevel, 1, 'CASHIER', 2, 'SUPERVISOR', 'INVALID')
+                        END,
+                        'INVALID'
+                    ) AS status,
+                    (
+                        SELECT MAX(udgprenom)
+                        FROM goldprod.vasuserdg@gold_server
+                        WHERE udgcode = pcacashierid
+                    ) AS name
+                FROM (
+                    SELECT pcacashierid, pcaauthlevel
+                    FROM goldprod.poscashier@gold_server
+                    WHERE pcacashierid = :cashier_id
+                    AND pcapin = :pin
+                )
+            """
+            cursor.execute(query, cashier_id=cashier_id, pin=pin)
         row = cursor.fetchone()
 
         response = {}
